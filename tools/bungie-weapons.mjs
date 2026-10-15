@@ -11,6 +11,7 @@ export const COMPONENTS = [
   "DestinyInventoryItemDefinition", "DestinyPlugSetDefinition", "DestinySocketCategoryDefinition",
   "DestinyDamageTypeDefinition", "DestinyStatDefinition", "DestinyStatGroupDefinition",
   "DestinyCollectibleDefinition", "DestinyEquipmentSlotDefinition",
+  "DestinySandboxPerkDefinition", "DestinyObjectiveDefinition",
 ];
 
 export function extractWeapons(m, version) {
@@ -142,6 +143,7 @@ export function extractWeapons(m, version) {
     weapons.push(main);
   }
   weapons.sort((a, b) => a.n.localeCompare(b.n));
+  attachCatalysts(m, weapons, perks, statNames);
 
   // drop perks no kept weapon references
   const used = new Set();
@@ -149,6 +151,54 @@ export function extractWeapons(m, version) {
   for (const h of Object.keys(perks)) if (!used.has(+h)) delete perks[h];
 
   return { version, generated: new Date().toISOString(), statNames, perks, weapons };
+}
+
+// Exotic catalysts. Most live as their own "<Weapon> Catalyst" mod items (the weapon itself only has an
+// empty catalyst socket); newer craftable-style exotics instead roll the catalyst perk in a perk column.
+// Either way it ends up on w.catalyst, and a catalyst perk column is moved out of w.cols.
+export function attachCatalysts(m, weapons, perks, statNames) {
+  const I = m.DestinyInventoryItemDefinition;
+  const SP = m.DestinySandboxPerkDefinition || {};
+  const OB = m.DestinyObjectiveDefinition || {};
+  const ST = m.DestinyStatDefinition;
+  const key = (n) => (n || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/^the /, "").replace(/[^a-z0-9]+/g, "");
+  const items = Object.values(I).filter((x) => x.itemType === 19 && !x.redacted && / Catalyst$/.test(x.displayProperties?.name || "") &&
+    /masterwork/.test(x.plug?.plugCategoryIdentifier || ""));
+  const fromItem = (c) => {
+    const [, ...rest] = (c.displayProperties.description || "").split(/\n\n/);
+    const stats = (c.investmentStats || []).filter((x) => x.value && ST[x.statTypeHash]?.displayProperties?.name)
+      .map((x) => { statNames[x.statTypeHash] = ST[x.statTypeHash].displayProperties.name; return [x.statTypeHash, x.value]; });
+    return {
+      n: c.displayProperties.name,
+      i: c.displayProperties.icon || "",
+      perks: (c.perks || []).map((p) => SP[p.perkHash]?.displayProperties).filter((d) => d?.name)
+        .map((d) => ({ n: d.name, d: d.description || "", i: d.icon || "" })),
+      ...(stats.length ? { s: stats } : {}),
+      ...(rest.join("\n\n").trim() ? { unlock: rest.join("\n\n").trim() } : {}),
+      obj: (c.objectives?.objectiveHashes || []).map((h) => OB[h]).filter(Boolean)
+        .map((o) => [o.progressDescription || "", o.completionValue || 0]),
+    };
+  };
+  const byKey = items.map((c) => [key(c.displayProperties.name.replace(/ Catalyst$/, "")), c]);
+  let n = 0;
+  for (const w of weapons) {
+    if (w.tier !== "Exotic") continue;
+    const k = key(w.n);
+    // exact name first, then a shortened one ("Whisper Catalyst" -> Whisper of the Worm), longest wins
+    const hit = byKey.find(([ck]) => ck === k) || byKey.filter(([ck]) => ck.length >= 5 && k.includes(ck)).sort((a, b) => b[0].length - a[0].length)[0];
+    const col = w.cols.find((c) => /catalyst/i.test(c.cat));
+    if (hit) w.catalyst = fromItem(hit[1]);
+    if (col) {
+      const colPerks = col.perks.map((h) => perks[h]).filter((p) => p && !p.e);
+      if (!w.catalyst) w.catalyst = { n: `${w.n} Catalyst`, i: colPerks[0]?.i || "", perks: [], obj: [] };
+      const have = new Set(w.catalyst.perks.map((p) => key(p.n)));
+      colPerks.forEach((p) => { if (!have.has(key(p.n))) w.catalyst.perks.push({ n: p.n, d: p.d, i: p.i }); });
+      if (!hit) w.catalyst.inPerks = true; // rolls/crafts like a perk rather than unlocking through an objective
+      w.cols = w.cols.filter((c) => c !== col);
+    }
+    if (w.catalyst) n++;
+  }
+  return n;
 }
 
 // ---------------------------------------------------------------- CLI (Node only)
