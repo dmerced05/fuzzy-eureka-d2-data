@@ -24,8 +24,9 @@ export function extractWeapons(m, version) {
   const SLOT = m.DestinyEquipmentSlotDefinition;
   const DUMMY = 3109687656;
   const AMMO = { 1: "Primary", 2: "Special", 3: "Heavy" };
-  // which plug categories count as a "perk column" on a weapon page
-  const COLUMN_CATS = /^(barrels|magazines|magazines_gl|frames|origins|scopes|arrows|bowstrings|batteries|blades|guards|hafts|stocks|tubes|grips|launcher.*|.*_barrels?|exotic\.catalysts?|catalysts|intrinsics)$/;
+  // anything in a perk socket is a perk column except trackers, empty/crafting sockets and masterworks.
+  // (a blocklist, so new column types like the bow rework's rails/bolts show up without code changes)
+  const NOT_COLUMN = /trackers|empty|crafting|masterwork|shader|ornament|mod_/;
 
   const perks = {};
   const statNames = {};
@@ -68,7 +69,7 @@ export function extractWeapons(m, version) {
       plugs = plugs.filter((p) => {
         const def = I[p.h];
         const cat = def?.plug?.plugCategoryIdentifier || "";
-        return def?.displayProperties?.name && COLUMN_CATS.test(cat) && !/^empty/i.test(def.displayProperties.name);
+        return def?.displayProperties?.name && cat && !NOT_COLUMN.test(cat) && !/^empty/i.test(def.displayProperties.name);
       });
       if (!plugs.length) return;
       const cat = I[plugs[0].h].plug.plugCategoryIdentifier;
