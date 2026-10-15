@@ -681,7 +681,13 @@ a.perk:hover { border-color: var(--arc); color: #fff; }
 .st-d { font-size: .75rem; margin-left: 4px; font-weight: 700; }
 .st-d.up { color: #7fd18b; } .st-d.down { color: #e06c6c; }
 .st-note { font-size: .78rem; margin: 8px 0 0; }
-.stat-pickers { display: grid; gap: 6px; margin: 0 0 10px; font-size: .88rem; }
-.stat-pickers label { display: grid; grid-template-columns: 90px 1fr; align-items: center; gap: 8px; color: var(--muted); }
-.stat-pickers label.chk { display: flex; gap: 6px; color: var(--text); cursor: pointer; }
-.stat-pickers select { padding: 4px 8px; font-size: .88rem; min-width: 0; }
+.stat-pickers { display: grid; gap: 10px; margin: 0 0 12px; font-size: .88rem; }
+.gear-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.gear-label { font-weight: 600; }
+.gear-sel { font-size: .8rem; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.gear-opts { display: flex; flex-wrap: wrap; gap: 4px; }
+.gear { box-sizing: border-box; padding: 0; width: 44px; height: 44px; border: 1px solid var(--line); border-radius: 4px; background: #111722; cursor: pointer; display: grid; place-items: center; overflow: hidden; }
+.gear img { display: block; width: 36px; height: 36px; border-radius: 3px; margin: 0; }
+.gear:hover { border-color: var(--muted); }
+.gear[aria-pressed="true"] { border-color: #4f9dff; box-shadow: 0 0 0 2px #4f9dff; }
+.gear-noimg { display: grid; place-items: center; width: 40px; height: 40px; font-size: .75rem; color: var(--muted); line-height: 1; }

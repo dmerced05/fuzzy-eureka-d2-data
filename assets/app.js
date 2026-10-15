@@ -1105,6 +1105,15 @@
     const modOptions = modPairs.map(([h]) => [h, P[h]]).filter(([, p]) => p)
       .map(([h, p]) => [h, `${p.n}${statSummary(p) ? ` (${statSummary(p)})` : ""}`]);
 
+    // icon grid for masterwork / mod / catalyst choices; the chosen one's name shows under the grid
+    const gearRow = (kind, label, options) => `<div class="gear-row">
+      <div class="gear-head"><span class="gear-label">${esc(label)}</span><span class="gear-sel muted" data-gearname="${kind}">None</span></div>
+      <div class="gear-opts">${options.map(([h, text, icon]) => {
+        const i = icon || P[h]?.i;
+        return `<button type="button" class="gear" data-gearpick="${kind}" data-h="${h}" aria-pressed="false" title="${esc(text)}" aria-label="${esc(text)}">${i ? `<img src="${BNET}${esc(i)}" alt="" width="40" height="40" loading="lazy">` : `<span class="gear-noimg">${esc(text.slice(0, 2))}</span>`}</button>`;
+      }).join("")}</div></div>`;
+    const gearLabel = Object.fromEntries([...mwOptions, ...modOptions].map(([h, text]) => [h, text]));
+
     app.innerHTML = `
       ${crumbs([["Home", "#/"], ["Weapons", "#/weapons"], [w.n]])}
       <header class="whero ${w.tier === "Exotic" ? "exotic" : ""} el-${esc(w.el)}" ${w.shot ? `style="--shot:url('${BNET}${esc(w.shot)}')"` : ""}>
@@ -1131,9 +1140,13 @@
           ${w.stats?.length ? `<section class="wcard-sec" data-statsbox><h3>Stats</h3>
             <div class="stat-tools"><label><input type="checkbox" data-enh> Enhanced perks</label><button type="button" class="btn btn-sm" data-clearroll hidden>Clear picks</button></div>
             ${mwOptions.length || modOptions.length || w.catalyst?.s ? `<div class="stat-pickers">
-              ${mwOptions.length ? `<label>Masterwork <select class="input" data-mw><option value="">None</option>${mwOptions.map(([h, label]) => `<option value="${h}">${esc(label)}</option>`).join("")}</select></label>` : ""}
-              ${modOptions.length ? `<label>Weapon mod <select class="input" data-mod><option value="">None</option>${modOptions.map(([h, label]) => `<option value="${h}">${esc(label)}</option>`).join("")}</select></label>` : ""}
-              ${w.catalyst?.s ? `<label class="chk"><input type="checkbox" data-cat> Catalyst (${esc(w.catalyst.s.map(([sh, v]) => `${v > 0 ? "+" : ""}${v} ${S.weapons.statNames[sh] || ""}`).join(", "))})</label>` : ""}
+              ${mwOptions.length ? gearRow("mw", "Masterwork", mwOptions) : ""}
+              ${mwOptions.length ? `<div class="gear-row mw-bonus" data-mwbonus hidden>
+                <div class="gear-head"><span class="gear-label">Bonus to other stats</span><span class="gear-sel muted">fully masterworked</span></div>
+                <div class="chips">${MW_BONUS.map(([v, label, tip]) => `<button type="button" class="chip chip-sm" data-mwb="${v}" aria-pressed="false" title="${esc(tip)}">${esc(label)}</button>`).join("")}</div>
+              </div>` : ""}
+              ${modOptions.length ? gearRow("mod", "Weapon mod", modOptions) : ""}
+              ${w.catalyst?.s ? gearRow("cat", "Catalyst", [["cat", `${w.catalyst.n} (${w.catalyst.s.map(([sh, v]) => `${v > 0 ? "+" : ""}${v} ${S.weapons.statNames[sh] || ""}`).join(", ")})`, w.catalyst.i]]) : ""}
             </div>` : ""}
             <p class="muted roll-hint" data-rollhint>Click perks in each column, or pick a masterwork and mod, to build a roll; the bars update as you go.</p>
             <div class="stats" data-statbars></div>
@@ -1166,14 +1179,18 @@
     // the roll you're building: column index -> base perk hash
     const picks = new Map();
     let useEnh = false;
-    const gear = { mw: "", mod: "", cat: false };
+    const gear = { mw: "", mod: "", cat: false, mwb: 0 };
     const drawStats = () => {
       const box = app.querySelector("[data-statbars]");
       if (!box) return;
       const delta = {};
       const add = (p) => (p?.s || []).forEach(([sh, v]) => { delta[sh] = (delta[sh] || 0) + v; });
       for (const h of picks.values()) add(P[(useEnh && enhOf[h]) || h]);
-      if (gear.mw) add(P[gear.mw]);
+      if (gear.mw) {
+        add(P[gear.mw]);
+        // max-level masterwork: +N to every other stat it lists, if the weapon has that stat
+        if (gear.mwb) (P[gear.mw]?.c || []).forEach((sh) => { if (w.stats.some(([h]) => String(h) === String(sh))) delta[sh] = (delta[sh] || 0) + gear.mwb; });
+      }
       if (gear.mod) add(P[(useEnh && modEnh[gear.mod]) || gear.mod]);
       if (gear.cat && w.catalyst?.s) add({ s: w.catalyst.s });
       box.innerHTML = w.stats.map(([h, v]) => statBar([h, v], shownStat(h, delta[h] || 0, v))).join("");
@@ -1184,21 +1201,40 @@
       app.querySelectorAll(".pk.picked").forEach((x) => x.classList.remove("picked"));
       for (const [ci, h] of picks) app.querySelector(`.pk[data-col="${ci}"][data-perk="${h}"]`)?.classList.add("picked");
     };
-    app.onchange = (ev) => {
-      const t = ev.target;
-      if (t.matches("[data-enh]")) useEnh = t.checked;
-      else if (t.matches("[data-mw]")) gear.mw = t.value;
-      else if (t.matches("[data-mod]")) gear.mod = t.value;
-      else if (t.matches("[data-cat]")) gear.cat = t.checked;
-      else return;
-      drawStats();
+    const markGear = () => {
+      app.querySelectorAll("[data-gearpick]").forEach((b) => {
+        const k = b.dataset.gearpick;
+        b.setAttribute("aria-pressed", String(k === "cat" ? gear.cat : gear[k] === b.dataset.h));
+      });
+      const bonusRow = app.querySelector("[data-mwbonus]");
+      if (bonusRow) {
+        bonusRow.hidden = !gear.mw || !(P[gear.mw]?.c || []).length;
+        bonusRow.querySelectorAll("[data-mwb]").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.mwb === gear.mwb)));
+      }
+      app.querySelectorAll("[data-gearname]").forEach((el) => {
+        const k = el.dataset.gearname;
+        el.textContent = k === "cat" ? (gear.cat ? "Applied" : "None") : (gearLabel[gear[k]] || "None");
+      });
     };
+    app.onchange = (ev) => { if (ev.target.matches("[data-enh]")) { useEnh = ev.target.checked; drawStats(); } };
     app.onclick = (ev) => {
       if (ev.target.closest("[data-clearroll]")) {
-        picks.clear(); gear.mw = gear.mod = ""; gear.cat = false;
-        app.querySelectorAll("[data-mw], [data-mod]").forEach((x) => { x.value = ""; });
-        app.querySelectorAll("[data-cat]").forEach((x) => { x.checked = false; });
-        markPicks(); drawStats(); return;
+        picks.clear(); gear.mw = gear.mod = ""; gear.cat = false; gear.mwb = 0;
+        markPicks(); markGear(); drawStats(); return;
+      }
+      const mb = ev.target.closest("[data-mwb]");
+      if (mb) { gear.mwb = +mb.dataset.mwb; markGear(); drawStats(); return; }
+      const g = ev.target.closest("[data-gearpick]");
+      if (g) {
+        const k = g.dataset.gearpick;
+        if (k === "cat") gear.cat = !gear.cat;
+        else {
+          const had = gear.mw;
+          gear[k] = gear[k] === g.dataset.h ? "" : g.dataset.h;
+          if (gear[k]) showPerk(gear[k]);
+          if (k === "mw" && gear.mw && !had && !gear.mwb) gear.mwb = 5; // a fresh masterwork starts at max tier
+        }
+        markGear(); drawStats(); return;
       }
       const b = ev.target.closest("[data-perk]");
       if (!b) return;
@@ -1215,6 +1251,13 @@
     if (first) showPerk(first);
     drawStats();
   }
+
+  // fully masterworked bonus to the other stats: Edge of Fate tiers give +tier, adept/enhanced weapons +3
+  const MW_BONUS = [
+    [0, "None", "No bonus to other stats"],
+    [1, "Tier 1", "+1 to other stats"], [2, "Tier 2", "+2 to other stats"], [3, "Tier 3", "+3 to other stats (also what older adept and enhanced weapons get)"],
+    [4, "Tier 4", "+4 to other stats"], [5, "Tier 5", "+5 to other stats"],
+  ];
 
   // perks Bungie still lists but that don't actually roll
   const DEPRECATED_PERKS = new Set(["dropmag"]);
