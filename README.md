@@ -1,6 +1,6 @@
 # fuzzy-eureka-d2-data
 
-A static Destiny 2 wiki built from five community spreadsheets and Bungie's own item data, searchable and cross-referenced. The numbers belong to the original authors; this repo only re-arranges them.
+A static Destiny 2 wiki built from five community spreadsheets and Bungie's own item data, searchable and cross-referenced. The numbers belong to the original authors as this repo only re-arranges them. This was built because I was annoyed having to sift through multiple spreadsheets and as a personal use application from the start.
 
 ## Credits
 
