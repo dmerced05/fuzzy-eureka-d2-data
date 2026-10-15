@@ -211,8 +211,9 @@
     const src = sheetUrl("compendium", e.sheet);
     return `
       <button type="button" class="btn btn-quiet back-to-list" data-back>‹ Back to results</button>
-      <h2 class="${c.exotic ? "exotic" : ""}">${esc(e.name)}</h2>
+      <h2 class="${c.exotic ? "exotic" : ""}"><a class="plain-link" href="${itemHref(e)}">${esc(e.name)}</a></h2>
       <div class="detail-meta">${tagsFor(e)}</div>
+      <p><a class="btn btn-primary" href="${itemHref(e)}">Open full page</a></p>
       ${body}
       ${kv.length ? `<section><dl class="kv">${kv.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${fmt(v)}</dd>`).join("")}</dl></section>` : ""}
       ${egHTML}
@@ -306,6 +307,7 @@
         </aside>
         <div class="list-col">
           <div class="results-head"><h2 id="count"></h2><button type="button" class="btn btn-quiet" data-clear>Clear filters</button></div>
+          <div class="wstrip" data-wstrip hidden></div>
           <ul class="results" role="list"></ul>
         </div>
         <article class="detail" aria-live="polite"></article>
@@ -337,6 +339,17 @@
     const kwNote = p.kw ? ` that ${p.role === "makes" ? "make" : p.role === "uses" ? "use" : "mention"} ${p.kw}` : "";
     shell.querySelector("#count").textContent = `${results.length.toLocaleString()} result${results.length === 1 ? "" : "s"}${kwNote}`;
     const list = shell.querySelector(".results");
+    // weapons live in their own file; show name matches above the Compendium results
+    const strip = shell.querySelector("[data-wstrip]");
+    if (p.q.trim().length >= 2) {
+      ensureWeapons().then(() => {
+        const t = p.q.toLowerCase().trim();
+        const hits = S.weapons.weapons.filter((w) => w.n.toLowerCase().includes(t)).slice(0, 8);
+        if (readExploreParams().q !== p.q) return;
+        strip.hidden = !hits.length;
+        strip.innerHTML = hits.length ? `<span class="muted">Weapons:</span> ${hits.map((w) => `<a class="perk" href="#/weapon/${w.slug}" ${w.tier === "Exotic" ? 'style="color:var(--exotic)"' : ""}>${esc(w.n)}</a>`).join("")}` : "";
+      });
+    } else strip.hidden = true;
     list.innerHTML = results.slice(0, limit).map((e) => `
       <li><button type="button" class="result ${elClass(e)}" data-open="${esc(e.id)}" aria-current="${p.id === e.id}">
         <span class="result-top"><span class="result-name ${CATS[e.cat]?.exotic ? "exotic" : ""}">${esc(e.name)}</span>${tagsFor(e)}</span>
@@ -636,7 +649,7 @@
       else if (d.pick) openPicker(SLOTS.find((s) => s.key === d.pick), +d.idx);
       else if (d.remove) { build.slots[d.remove].splice(+d.idx, 1); saveCurrent(); renderBuild(); }
       else if (d.add) { addToBuild(S.byId.get(d.add), true); renderBuild(); }
-      else if (d.open) go(`#/explore?id=${encodeURIComponent(d.open)}`);
+      else if (d.open) go(`#/item/${encodeURIComponent(d.open)}`);
       else if (d.kw) go(`#/explore?kw=${encodeURIComponent(d.kw)}${glossaryFor(d.kw) ? `&id=${encodeURIComponent(glossaryFor(d.kw).id)}` : ""}`);
       else if (d.reset !== undefined) { build = emptyBuild(); saveCurrent(); renderBuild(); }
       else if (d.share !== undefined) {
@@ -812,10 +825,72 @@
     app.querySelector("#encsel").onchange = (ev) => go(`#/boss/encounters?e=${encodeURIComponent(ev.target.value)}`, true);
   }
 
+  // ------------------------------------------------------------ wiki: shared
+  const BNET = "https://www.bungie.net";
+  const TIER_ORDER = ["S", "A", "B", "C", "D", "E", "F"];
+  const tierRank = (t) => { const i = TIER_ORDER.indexOf((t || "").trim()); return i < 0 ? 99 : i; };
+  const normName = (t) => (t || "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/^the /, "").replace(/[^a-z0-9]+/g, "");
+  const slugify = (t) => (t || "").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const itemHref = (e) => `#/item/${encodeURIComponent(e.id)}`;
+  const tierBadge = (t, title) => (t ? `<span class="tier tier-${esc(t)}" title="${esc(title || `Tier ${t}`)}">${esc(t)}</span>` : "");
+  const crumbs = (list) => `<nav class="crumbs" aria-label="Breadcrumb">${list.map(([label, href]) => (href ? `<a href="${href}">${esc(label)}</a>` : `<span aria-current="page">${esc(label)}</span>`)).join('<span class="sep">›</span>')}</nav>`;
+
+  // category pages: how each kind of entry is grouped
+  const WIKI = {
+    "exotic-armor": { title: "Exotic armor", group: (e) => e.cls || "Any class", order: CLASSES },
+    "exotic-class": { title: "Exotic class item perks", group: (e) => `${e.cls || "Any class"} · ${e.column || ""} column`, order: [] },
+    "aspect": { title: "Aspects", group: (e) => `${e.el} ${e.cls}`, order: [] },
+    "fragment": { title: "Fragments", group: (e) => e.el, order: ELEMENTS },
+    "super": { title: "Supers", group: (e) => `${e.el} ${e.cls}`, order: [] },
+    "grenade": { title: "Grenades", group: (e) => e.el + (e.el === "Prismatic" ? ` ${e.cls}` : ""), order: ELEMENTS },
+    "melee": { title: "Melees", group: (e) => `${e.el} ${e.cls}`, order: [] },
+    "class-ability": { title: "Class abilities", group: (e) => e.cls, order: CLASSES },
+    "class-trait": { title: "Class traits", group: (e) => e.cls, order: CLASSES },
+    "verb": { title: "Keywords", group: (e) => e.el, order: ELEMENTS },
+    "armor-set": { title: "Armor set bonuses", group: (e) => e.name[0].toUpperCase(), order: [] },
+    "armor-mod": { title: "Armor mods", group: (e) => [e.slot, e.group].filter(Boolean).join(" · "), order: ["Helmet", "Arms", "Chest", "Legs", "Class Item"] },
+    "weapon-trait": { title: "Weapon traits", group: (e) => e.name[0].toUpperCase(), order: [] },
+    "origin-trait": { title: "Origin traits", group: (e) => e.name[0].toUpperCase(), order: [] },
+    "intrinsic": { title: "Weapon frames", group: () => "Frames", order: [] },
+    "weapon-mod": { title: "Weapon mods", group: () => "Mods", order: [] },
+    "weapon-info": { title: "Weapon info", group: (e) => e.group || "Info", order: [] },
+    "mechanic": { title: "Activity modifiers", group: (e) => e.group || "Other", order: [] },
+    "exotic-weapon": { title: "Exotic weapons (Compendium notes)", group: (e) => `${e.slot || ""} slot`, order: [] },
+  };
+
+  async function ensureWeapons() {
+    if (!S.weapons) S.weapons = await (await fetch("data/weapons.json")).json();
+    if (!S.weaponByKey) {
+      S.weaponByKey = new Map();
+      S.weaponBySlug = new Map();
+      S.weapons.weapons.forEach((w) => { S.weaponByKey.set(normName(w.n), w); S.weaponBySlug.set(w.slug, w); });
+      // which weapons can roll which perk (by name, enhanced folded in)
+      S.rollers = new Map();
+      S.weapons.weapons.forEach((w) => w.cols.forEach((c) => c.perks.forEach((h) => {
+        const k = normName(S.weapons.perks[h]?.n);
+        if (!k) return;
+        if (!S.rollers.has(k)) S.rollers.set(k, new Set());
+        S.rollers.get(k).add(w);
+      })));
+    }
+    return S.weapons;
+  }
+
+  // compendium entry for a weapon perk, if the Compendium documents it
+  let perkIndex = null;
+  function compendiumPerk(name) {
+    if (!perkIndex) {
+      perkIndex = new Map();
+      S.entries.filter((e) => ["weapon-trait", "origin-trait", "intrinsic", "weapon-mod", "exotic-weapon"].includes(e.cat))
+        .forEach((e) => { if (!perkIndex.has(normName(e.name))) perkIndex.set(normName(e.name), e); });
+    }
+    return perkIndex.get(normName((name || "").replace(/^↑/, "")));
+  }
+
   // ------------------------------------------------------------ home
   const HOME = [
     { title: "Exotics", items: [
-      { label: "Exotic weapons", cat: "exotic-weapon", blurb: "Perks, catalysts and endgame ratings", exotic: true },
+      { label: "Exotic weapons", href: "#/weapons?rarity=Exotic", count: () => S.meta.counts?.exotics, blurb: "Perks, catalysts and endgame ratings", exotic: true },
       { label: "Exotic armor", cat: "exotic-armor", blurb: "Every exotic perk, by class", exotic: true },
       { label: "Exotic class items", cat: "exotic-class", blurb: "Spirit perks for both columns", exotic: true },
     ] },
@@ -829,13 +904,13 @@
       { label: "Keywords", cat: "verb", blurb: "Jolt, Scorch, Devour and the rest" },
     ] },
     { title: "Weapons and armor", items: [
-      { label: "Legendary weapons", href: "#/weapons", count: () => S.weapons?.weapons.length || S.weaponCount, blurb: "Ranked by type, with the best rolls" },
+      { label: "Legendary weapons", href: "#/weapons?rarity=Legendary", count: () => S.meta.counts?.legendaries, blurb: "Every perk they can roll, plus the best picks" },
       { label: "Weapon traits", cat: "weapon-trait" },
       { label: "Origin traits", cat: "origin-trait" },
       { label: "Weapon frames", cat: "intrinsic" },
       { label: "Armor set bonuses", cat: "armor-set" },
       { label: "Armor mods", cat: "armor-mod" },
-      { label: "Artifact perks", cat: "artifact-perk" },
+      { label: "Artifacts", href: "#/wiki/artifacts", count: () => artifacts().length, blurb: "Every seasonal artifact and its perks" },
     ] },
     { title: "Endgame", items: [
       { label: "Boss health", href: "#/boss/health", blurb: "Health at every power delta" },
@@ -852,10 +927,10 @@
     app.innerHTML = `
       <section class="home-hero">
         <h1>Destiny 2, by the numbers</h1>
-        <p>Exact values for perks, abilities and exotics, weapon rankings and boss data, gathered from the community's testing spreadsheets.</p>
+        <p>Exact values for perks, abilities and exotics, every weapon's perk pool with the community's best picks, and boss data, gathered from the community's testing spreadsheets and Bungie's own item data.</p>
         <form class="home-search" role="search">
           <label class="visually-hidden" for="homeq">Search everything</label>
-          <input id="homeq" class="input" type="search" placeholder="Search a perk, exotic, aspect, mod…" autocomplete="off">
+          <input id="homeq" class="input" type="search" placeholder="Search a perk, exotic, aspect, weapon…" autocomplete="off">
           <button class="btn btn-primary" type="submit">Search</button>
         </form>
       </section>
@@ -863,7 +938,7 @@
         <section class="home-group" aria-labelledby="hg-${slugify(g.title)}">
           <h2 id="hg-${slugify(g.title)}">${esc(g.title)}</h2>
           <div class="home-grid">${g.items.map((it) => {
-            const href = it.href || `#/explore?cat=${it.cat}`;
+            const href = it.href || `#/wiki/${it.cat}`;
             const n = it.cat ? counts[it.cat] : it.count?.();
             return `<a class="home-tile ${it.exotic ? "exotic" : ""}" href="${href}">
               <span class="ht-label">${esc(it.label)}</span>
@@ -878,88 +953,257 @@
       go(`#/explore${v ? `?q=${encodeURIComponent(v)}` : ""}`);
     };
   }
-  const slugify = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
-  // ------------------------------------------------------------ weapons (Endgame Analysis)
-  const TIER_ORDER = ["S", "A", "B", "C", "D", "E", "F"];
-  const tierRank = (t) => { const i = TIER_ORDER.indexOf((t || "").trim()); return i < 0 ? 99 : i; };
-  const normName = (t) => (t || "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "");
-  let perkIndex = null;
-  function perkLink(name) {
-    if (!perkIndex) {
-      perkIndex = new Map();
-      S.entries.filter((e) => ["weapon-trait", "origin-trait", "intrinsic", "weapon-mod"].includes(e.cat))
-        .forEach((e) => { if (!perkIndex.has(normName(e.name))) perkIndex.set(normName(e.name), e.id); });
-    }
-    const id = perkIndex.get(normName(name.replace(/^↑/, "")));
-    return id ? `<a class="perk" href="#/explore?id=${encodeURIComponent(id)}">${esc(name)}</a>` : `<span class="perk plain">${esc(name)}</span>`;
+  // ------------------------------------------------------------ wiki: category pages
+  function renderCategory(cat) {
+    if (cat === "artifacts" || cat === "artifact-perk") return renderArtifacts();
+    const conf = WIKI[cat];
+    if (!conf) { app.innerHTML = `<p>No such section. <a href="#/">Back home</a></p>`; return; }
+    const list = S.entries.filter((e) => e.cat === cat).sort((a, b) => a.name.localeCompare(b.name));
+    const groups = new Map();
+    list.forEach((e) => { const g = conf.group(e) || "Other"; (groups.get(g) || groups.set(g, []).get(g)).push(e); });
+    const keys = [...groups.keys()].sort((a, b) => {
+      const ia = conf.order.findIndex((o) => a.startsWith(o)), ib = conf.order.findIndex((o) => b.startsWith(o));
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+    });
+    app.innerHTML = `
+      ${crumbs([["Home", "#/"], [conf.title]])}
+      <div class="cat-head"><h1>${esc(conf.title)}</h1>
+        <input class="input" type="search" placeholder="Filter ${list.length} ${esc(conf.title.toLowerCase())}…" data-cfilter aria-label="Filter this list"></div>
+      ${keys.map((g) => `
+        <section class="cat-group" data-group>
+          <h2>${esc(g)}</h2>
+          <ul class="cat-list">${groups.get(g).map((e) => `
+            <li data-name="${esc((e.name + " " + e.desc).toLowerCase())}"><a class="cat-item ${elClass(e)} ${CATS[e.cat]?.exotic ? "exotic" : ""}" href="${itemHref(e)}">
+              <span class="ci-name">${esc(e.name)}${e.eg?.[0]?.tier ? ` ${tierBadge(e.eg[0].tier, "Endgame Analysis tier")}` : ""}</span>
+              ${e.perk ? `<span class="ci-sub">${esc(e.perk)}</span>` : ""}
+              <span class="ci-snip">${esc(snippet(e.desc, 120))}</span></a></li>`).join("")}</ul>
+        </section>`).join("")}`;
+    const f = app.querySelector("[data-cfilter]");
+    f.oninput = () => {
+      const v = f.value.toLowerCase().trim();
+      app.querySelectorAll("[data-group]").forEach((sec) => {
+        let shown = 0;
+        sec.querySelectorAll("li").forEach((li) => { const hit = !v || li.dataset.name.includes(v); li.hidden = !hit; shown += hit; });
+        sec.hidden = !shown;
+      });
+    };
   }
 
+  // ------------------------------------------------------------ wiki: artifacts
+  function artifacts() {
+    if (S._artifacts) return S._artifacts;
+    const map = new Map();
+    S.entries.filter((e) => e.cat === "artifact-perk").forEach((e) => {
+      if (!map.has(e.artifact)) map.set(e.artifact, { name: e.artifact, slug: slugify(e.artifact), tags: e.tags, perks: [] });
+      map.get(e.artifact).perks.push(e);
+    });
+    S._artifacts = [...map.values()];
+    return S._artifacts;
+  }
+
+  function renderArtifacts() {
+    const list = artifacts();
+    app.innerHTML = `
+      ${crumbs([["Home", "#/"], ["Artifacts"]])}
+      <h1>Artifacts</h1>
+      <p class="intro">Seasonal artifacts and their perks, newest first, as listed in the Compendium. Artifact perks are disabled in Competitive and Trials.</p>
+      <div class="home-grid" style="margin-top:16px">${list.map((a) => {
+        const [name, season] = splitArtifact(a.name);
+        return `<a class="home-tile" href="#/artifact/${a.slug}"><span class="ht-label">${esc(name)}</span><span class="ht-count">${a.perks.length} perks</span>
+        <span class="ht-blurb">${esc(season ? `${season}` : "")}${a.tags ? `${season ? " · " : ""}${esc(a.tags.replace(/\s*⯁\s*/g, " · "))}` : ""}</span></a>`;
+      }).join("")}</div>`;
+  }
+  const splitArtifact = (n) => { const m = (n || "").match(/^(.*?)\s*\(([^)]+)\)\s*$/); return m ? [m[1], m[2]] : [n, ""]; };
+
+  function renderArtifact(slug) {
+    const a = artifacts().find((x) => x.slug === slug);
+    if (!a) { app.innerHTML = `<p>Artifact not found. <a href="#/wiki/artifacts">All artifacts</a></p>`; return; }
+    const [name, season] = splitArtifact(a.name);
+    const cols = [1, 2, 3].map((c) => a.perks.filter((p) => p.column === c));
+    app.innerHTML = `
+      ${crumbs([["Home", "#/"], ["Artifacts", "#/wiki/artifacts"], [name]])}
+      <h1>${esc(name)}</h1>
+      <p class="intro">${season ? `${esc(season)}. ` : ""}${a.tags ? `Focus: ${esc(a.tags.replace(/\s*⯁\s*/g, " · "))}` : ""}</p>
+      <div class="artifact-grid">${cols.map((list, i) => `
+        <section class="artifact-col" aria-label="Column ${i + 1}">
+          <h2>Column ${i + 1} <span class="muted" aria-hidden="true">${"⯁".repeat(i + 1)}</span></h2>
+          ${list.map((p) => `<article class="perk-card">
+            <h3><a href="${itemHref(p)}">${esc(p.name)}</a> ${tierBadge(p.eg?.[0]?.tier, "Endgame Analysis tier")}</h3>
+            <div class="desc">${fmt(p.desc)}</div>
+            ${p.eg?.[0]?.analysis ? `<p class="muted pc-note">${esc(p.eg[0].analysis)}</p>` : ""}
+          </article>`).join("")}
+        </section>`).join("")}</div>
+      ${sourceNote([["compendium", "Artifact Perks"], a.perks.some((p) => p.eg) && ["endgame", "Artifact Mods"]].filter(Boolean))}`;
+  }
+
+  function sourceNote(list) {
+    return `<p class="source-note">Sources: ${list.map(([src, tab]) => {
+      const s = S.meta.sources[src];
+      return `<a href="${esc(sheetUrl(src, tab) || "#")}" target="_blank" rel="noopener">${esc(s?.title || src)}${tab ? ` (${esc(tab)})` : ""}</a> by ${esc(s?.author || "")}`;
+    }).join("; ")}.</p>`;
+  }
+
+  // ------------------------------------------------------------ wiki: entry pages
+  async function renderItem(id) {
+    const e = S.byId.get(id);
+    if (!e) { app.innerHTML = `<p>That page doesn't exist. <a href="#/">Back home</a></p>`; return; }
+    const conf = WIKI[e.cat];
+    const art = e.cat === "artifact-perk" && artifacts().find((a) => a.name === e.artifact);
+    const trail = [["Home", "#/"]];
+    if (art) trail.push(["Artifacts", "#/wiki/artifacts"], [splitArtifact(art.name)[0], `#/artifact/${art.slug}`]);
+    else if (conf) trail.push([conf.title, `#/wiki/${e.cat}`]);
+    trail.push([e.name]);
+
+    const c = CATS[e.cat] || {};
+    const info = [];
+    const add = (k, v) => v && info.push([k, v]);
+    add("Type", c.label);
+    add("Element", e.el);
+    add("Class", e.cls);
+    add("Exotic perk", e.perk);
+    add("Frame", e.frame);
+    add("Source", e.source);
+    if (art) info.push(["Artifact", `<a href="#/artifact/${art.slug}">${esc(art.name)}</a>`, true]);
+    add("Column", e.column && (e.cat === "artifact-perk" ? `${e.column} of 3` : e.column));
+    add("Cost", e.cost);
+    add("Armor slot", e.cat === "armor-mod" && e.slot);
+    add("Group", e.group);
+    add("Stat changes", e.stats);
+    add("Notes", e.note);
+    add("Modified by", e.mods?.join(", "));
+
+    const body = e.pieces?.length
+      ? e.pieces.map((p) => `<section class="piece"><h2>${esc(p.count)}: ${esc(p.name)}</h2><div class="desc">${fmt(p.desc)}</div></section>`).join("")
+      : `<div class="desc">${fmt(e.desc)}</div>`;
+
+    const roles = rolesOf(e);
+    const kwChips = Object.entries(roles).filter(([, r]) => r.has("produce") || r.has("use")).map(([k, r]) => {
+      const g = S.kwByName.get(k)?.group || "General";
+      const role = [r.has("produce") && "makes", r.has("use") && "uses"].filter(Boolean).join(" + ");
+      return `<a class="chip el-${esc(g)}" href="#/explore?kw=${encodeURIComponent(k)}"><span class="dot"></span>${esc(k)} <span class="role">${role}</span></a>`;
+    }).join("");
+
+    // siblings for wiki-style navigation
+    let sibs = [];
+    if (art) sibs = art.perks;
+    else if (conf) sibs = S.entries.filter((o) => o.cat === e.cat && conf.group(o) === conf.group(e));
+    sibs = sibs.filter((o) => o !== e).slice(0, 40);
+    const slot = SLOT_BY_CAT[e.cat];
+    const egBlock = endgameHTML(e);
+
+    app.innerHTML = `
+      ${crumbs(trail)}
+      <div class="wiki">
+        <article class="wiki-main">
+          <h1 class="${c.exotic ? "exotic" : ""}">${esc(e.name)}</h1>
+          <div class="detail-meta">${tagsFor(e)}</div>
+          ${body}
+          ${egBlock}
+          ${kwChips ? `<section class="wiki-sec"><h2>Keywords</h2><p class="muted small">Each one lists everything else that makes or uses it.</p><div class="kwlist">${kwChips}</div></section>` : ""}
+          <section class="wiki-sec" data-rollers hidden></section>
+          <p class="legend"><span class="pvp">[bracketed] = PvP value</span><span class="enh">↑ = enhanced or catalyst value</span><span>? = not yet tested</span></p>
+        </article>
+        <aside class="wiki-side">
+          <dl class="infobox">${info.map(([k, v, raw]) => `<dt>${esc(k)}</dt><dd>${raw ? v : fmt(String(v))}</dd>`).join("")}</dl>
+          <div class="side-actions">
+            ${slot ? `<button type="button" class="btn btn-primary" data-addbuild="${esc(e.id)}">Add to build</button>` : ""}
+            ${e.cat === "exotic-weapon" ? `<a class="btn" data-weaponlink hidden>Perks and stats</a>` : ""}
+            <a class="btn" href="${esc(sheetUrl("compendium", e.sheet) || "#")}" target="_blank" rel="noopener">Open in the Compendium</a>
+          </div>
+          ${sibs.length ? `<nav class="sibs" aria-label="More like this"><h2>${art ? "Also on this artifact" : (conf?.group(e) || "").length <= 1 ? `More ${esc(conf.title.toLowerCase())}` : `More ${esc(conf?.group(e) || "")}`}</h2><ul>${sibs.map((o) => `<li><a href="${itemHref(o)}" class="${elClass(o)}">${esc(o.name)}</a></li>`).join("")}</ul></nav>` : ""}
+        </aside>
+      </div>
+      ${sourceNote([["compendium", e.sheet], e.eg && ["endgame", e.eg[0].tab], e.egExotic && ["endgame", "Exotic Weapons"]].filter(Boolean))}`;
+
+    app.onclick = (ev) => {
+      const b = ev.target.closest("[data-addbuild]");
+      if (b) addToBuild(S.byId.get(b.dataset.addbuild));
+    };
+
+    // weapon-side extras need the (bigger) weapon file
+    if (["weapon-trait", "origin-trait", "intrinsic", "exotic-weapon"].includes(e.cat)) {
+      await ensureWeapons();
+      if (location.hash !== `#/item/${encodeURIComponent(id)}` && location.hash !== `#/item/${id}`) return;
+      if (e.cat === "exotic-weapon") {
+        const w = S.weaponByKey.get(normName(e.name));
+        const a = app.querySelector("[data-weaponlink]");
+        if (w && a) { a.href = `#/weapon/${w.slug}`; a.hidden = false; }
+        return;
+      }
+      const rollers = e.cat === "intrinsic"
+        ? S.weapons.weapons.filter((w) => normName(w.frame) === normName(e.name.split(" (")[0]))
+        : [...(S.rollers.get(normName(e.name)) || [])];
+      if (!rollers.length) return;
+      rollers.sort((a, b) => tierRank(a.eg?.[0]?.tier) - tierRank(b.eg?.[0]?.tier) || a.n.localeCompare(b.n));
+      const sec = app.querySelector("[data-rollers]");
+      sec.hidden = false;
+      sec.innerHTML = `<h2>${e.cat === "intrinsic" ? "Weapons with this frame" : "Weapons that can roll it"} <span class="muted">${rollers.length}</span></h2>
+        <ul class="roller-list">${rollers.map((w) => `<li><a href="#/weapon/${w.slug}" class="el-${esc(w.el)}">${w.icon ? `<img src="${BNET}${esc(w.icon)}" alt="" loading="lazy" width="32" height="32">` : ""}<span>${esc(w.n)}</span>${tierBadge(w.eg?.[0]?.tier, "Endgame Analysis tier")}<span class="muted">${esc(w.type)}</span></a></li>`).join("")}</ul>`;
+    }
+  }
+
+  // ------------------------------------------------------------ weapons index
   function readWeaponParams() {
     const { q } = parseHash();
-    return { q: q.get("q") || "", type: q.get("type") || "", el: q.get("el") || "", tier: q.get("tier") || "", sort: q.get("sort") || "" };
+    return { q: q.get("q") || "", type: q.get("type") || "", el: q.get("el") || "", tier: q.get("tier") || "", ammo: q.get("ammo") || "", rarity: q.get("rarity") || "", perk: q.get("perk") || "", sort: q.get("sort") || "" };
   }
-  function weaponHash(view, p) {
-    const q = new URLSearchParams(Object.entries(p).filter(([, v]) => v));
-    return `#/weapons${view === "exotic" ? "/exotic" : ""}${q.toString() ? "?" + q : ""}`;
-  }
+  const weaponHash = (p) => { const q = new URLSearchParams(Object.entries(p).filter(([, v]) => v)); return `#/weapons${q.toString() ? "?" + q : ""}`; };
 
   async function renderWeapons(view) {
-    if (!S.weapons) {
-      app.innerHTML = `<p class="loading">Loading weapons…</p>`;
-      S.weapons = await (await fetch("data/weapons.json")).json();
-    }
+    if (!S.weapons) app.innerHTML = `<p class="loading">Loading weapons…</p>`;
+    await ensureWeapons();
+    if (view === "exotic-ratings") return renderExoticRatings();
     const p = readWeaponParams();
-    const src = S.meta.sources.endgame;
-    const tabs = `<nav class="tabbar" aria-label="Weapon lists">
-      <a href="#/weapons" ${view !== "exotic" ? 'aria-current="page"' : ""}>Legendary (${S.weapons.weapons.length})</a>
-      <a href="#/weapons/exotic" ${view === "exotic" ? 'aria-current="page"' : ""}>Exotic ratings (${S.weapons.exotics.length})</a></nav>`;
-    const head = `<h1>Weapons</h1>
-      <p class="intro">Rankings and recommended rolls from <a href="https://docs.google.com/spreadsheets/d/${esc(src.id)}/edit" target="_blank" rel="noopener">Endgame Analysis</a> by ${esc(src.author)}, ranked for PvE endgame within each weapon type. Perk names link to their exact values in the Compendium.</p>${tabs}`;
-
-    if (view === "exotic") return renderExoticRatings(head, p);
-
     const all = S.weapons.weapons;
-    const types = [...new Set(all.map((w) => w.type))];
-    const els = ["Kinetic", "Arc", "Solar", "Void", "Stasis", "Strand"];
+    const types = [...new Set(all.map((w) => w.type))].sort();
     const terms = p.q.toLowerCase().split(/\s+/).filter(Boolean);
-    let rows = all.filter((w) => (!p.type || w.type === p.type) && (!p.el || w.element === p.el) && (!p.tier || w.tier === p.tier) &&
-      (!terms.length || terms.every((t) => (w._hay ||= [w.name, w.variant, w.frame, w.source, ...(w.perk1 || []), ...(w.perk2 || []), ...(w.origin || []), w.notes].join(" ").toLowerCase()).includes(t))));
+    const perkKey = normName(p.perk);
+    let rows = all.filter((w) => (!p.type || w.type === p.type) && (!p.el || w.el === p.el) && (!p.ammo || w.ammo === p.ammo) &&
+      (!p.rarity || w.tier === p.rarity) && (!p.tier || w.eg?.some((x) => x.tier === p.tier)) &&
+      (!perkKey || w.cols.some((c) => c.perks.some((h) => normName(S.weapons.perks[h]?.n) === perkKey))) &&
+      (!terms.length || terms.every((t) => (w._hay ||= [w.n, w.type, w.frame, w.src, w.el].join(" ").toLowerCase()).includes(t))));
     const sorters = {
-      tier: (a, b) => tierRank(a.tier) - tierRank(b.tier) || types.indexOf(a.type) - types.indexOf(b.type) || (+a.rank || 999) - (+b.rank || 999),
-      name: (a, b) => a.name.localeCompare(b.name),
-      season: (a, b) => (+b.season || 0) - (+a.season || 0) || tierRank(a.tier) - tierRank(b.tier),
-      "": (a, b) => types.indexOf(a.type) - types.indexOf(b.type) || (+a.rank || 999) - (+b.rank || 999),
+      tier: (a, b) => tierRank(a.eg?.[0]?.tier) - tierRank(b.eg?.[0]?.tier) || (+a.eg?.[0]?.rank || 999) - (+b.eg?.[0]?.rank || 999) || a.n.localeCompare(b.n),
+      type: (a, b) => a.type.localeCompare(b.type) || (+a.eg?.[0]?.rank || 999) - (+b.eg?.[0]?.rank || 999) || a.n.localeCompare(b.n),
+      "": (a, b) => a.n.localeCompare(b.n),
     };
     rows = rows.slice().sort(sorters[p.sort] || sorters[""]);
-    const tierCounts = {};
-    all.forEach((w) => { if (!p.type || w.type === p.type) tierCounts[w.tier] = (tierCounts[w.tier] || 0) + 1; });
-
-    app.innerHTML = `${head}
+    const limit = 240;
+    const chip = (key, val, label, extra = "") => `<button type="button" class="chip ${extra}" aria-pressed="${p[key] === val}" data-wf="${key}" data-v="${esc(val)}">${label}</button>`;
+    app.innerHTML = `
+      ${crumbs([["Home", "#/"], ["Weapons"]])}
+      <h1>Weapons</h1>
+      <p class="intro">Every legendary and exotic weapon in Bungie's item data with every perk it can roll. Tiers and suggested rolls come from <a href="${esc(sheetUrl("endgame", "Autos") || "#")}" target="_blank" rel="noopener">Endgame Analysis</a> by ${esc(S.meta.sources.endgame?.author || "")}.</p>
+      <nav class="tabbar" aria-label="Weapon views"><a href="#/weapons" aria-current="page">All weapons</a><a href="#/weapons/exotic-ratings">Exotic ratings table</a></nav>
       <div class="wfilters">
-        <input class="input" type="search" placeholder="Search name, perk, source…" value="${esc(p.q)}" data-wq aria-label="Search weapons">
-        <select class="input" data-wtype aria-label="Weapon type"><option value="">All types</option>${types.map((t) => `<option ${t === p.type ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
-        <select class="input" data-wsort aria-label="Sort"><option value="">Sort: type, then rank</option><option value="tier" ${p.sort === "tier" ? "selected" : ""}>Sort: tier</option><option value="season" ${p.sort === "season" ? "selected" : ""}>Sort: newest</option><option value="name" ${p.sort === "name" ? "selected" : ""}>Sort: name</option></select>
+        <input class="input" type="search" placeholder="Search by name, frame, source…" value="${esc(p.q)}" data-wq aria-label="Search weapons">
+        <select class="input" data-wsel="type" aria-label="Weapon type"><option value="">All types</option>${types.map((t) => `<option ${t === p.type ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
+        <input class="input" list="perknames" placeholder="Can roll perk…" value="${esc(p.perk)}" data-wperk aria-label="Can roll this perk">
+        <datalist id="perknames">${[...new Set(Object.values(S.weapons.perks).filter((x) => /Trait|Origin/.test(x.t) && !x.e).map((x) => x.n))].sort().map((n) => `<option value="${esc(n)}">`).join("")}</datalist>
+        <select class="input" data-wsel="sort" aria-label="Sort"><option value="">Sort: name</option><option value="tier" ${p.sort === "tier" ? "selected" : ""}>Sort: Endgame tier</option><option value="type" ${p.sort === "type" ? "selected" : ""}>Sort: type, then rank</option></select>
       </div>
       <div class="wfilters">
-        <div class="chips">${els.map((el) => `<button type="button" class="chip el-${el}" aria-pressed="${p.el === el}" data-wel="${el}"><span class="dot"></span>${el}</button>`).join("")}</div>
-        <div class="chips">${TIER_ORDER.filter((t) => tierCounts[t]).map((t) => `<button type="button" class="chip" aria-pressed="${p.tier === t}" data-wtier="${t}">Tier ${t} <span class="muted">${tierCounts[t]}</span></button>`).join("")}</div>
+        <div class="chips">${chip("rarity", "Legendary", "Legendary")}${chip("rarity", "Exotic", "Exotic", "chip-exotic")}</div>
+        <div class="chips">${["Kinetic", "Arc", "Solar", "Void", "Stasis", "Strand"].map((el) => chip("el", el, `<span class="dot"></span>${el}`, `el-${el}`)).join("")}</div>
+        <div class="chips">${["Primary", "Special", "Heavy"].map((a) => chip("ammo", a, a)).join("")}</div>
+        <div class="chips">${TIER_ORDER.slice(0, 6).map((t) => chip("tier", t, `Tier ${t}`)).join("")}</div>
       </div>
-      <p class="muted" data-wcount>${rows.length} weapon${rows.length === 1 ? "" : "s"}</p>
-      <ol class="wlist">${rows.slice(0, 300).map(weaponCard).join("")}</ol>
-      ${rows.length > 300 ? `<p class="muted">Showing the first 300. Narrow it down with a type or search.</p>` : ""}
-      ${!rows.length ? `<p>No weapons match. Clear a filter or try a perk name.</p>` : ""}`;
+      <p class="muted">${rows.length.toLocaleString()} weapon${rows.length === 1 ? "" : "s"}${p.perk ? ` that can roll ${esc(p.perk)}` : ""}</p>
+      <ul class="wgrid">${rows.slice(0, limit).map(weaponTile).join("")}</ul>
+      ${rows.length > limit ? `<button type="button" class="btn" data-wmore style="margin-top:10px">Show all ${rows.length}</button>` : ""}
+      ${!rows.length ? `<p>No weapons match. Clear a filter or check the perk name.</p>` : ""}`;
 
     let t;
-    app.querySelector("[data-wq]").oninput = (ev) => { clearTimeout(t); t = setTimeout(() => { go(weaponHash("", { ...readWeaponParams(), q: ev.target.value }), true); focusEnd("[data-wq]"); }, 200); };
-    app.querySelector("[data-wtype]").onchange = (ev) => go(weaponHash("", { ...readWeaponParams(), type: ev.target.value, tier: "" }), true);
-    app.querySelector("[data-wsort]").onchange = (ev) => go(weaponHash("", { ...readWeaponParams(), sort: ev.target.value }), true);
+    const upd = (patch) => go(weaponHash({ ...readWeaponParams(), ...patch }), true);
+    app.querySelector("[data-wq]").oninput = (ev) => { clearTimeout(t); t = setTimeout(() => { upd({ q: ev.target.value }); focusEnd("[data-wq]"); }, 220); };
+    app.querySelector("[data-wperk]").onchange = (ev) => upd({ perk: ev.target.value.trim() });
+    app.querySelectorAll("[data-wsel]").forEach((s) => { s.onchange = () => upd({ [s.dataset.wsel]: s.value }); });
     app.onclick = (ev) => {
       const b = ev.target.closest("button");
       if (!b) return;
-      const cur = readWeaponParams();
-      if (b.dataset.wel) go(weaponHash("", { ...cur, el: cur.el === b.dataset.wel ? "" : b.dataset.wel }), true);
-      if (b.dataset.wtier) go(weaponHash("", { ...cur, tier: cur.tier === b.dataset.wtier ? "" : b.dataset.wtier }), true);
+      if (b.dataset.wf) { const cur = readWeaponParams(); upd({ [b.dataset.wf]: cur[b.dataset.wf] === b.dataset.v ? "" : b.dataset.v }); }
+      if (b.dataset.wmore !== undefined) { app.querySelector(".wgrid").insertAdjacentHTML("beforeend", rows.slice(limit).map(weaponTile).join("")); b.remove(); }
     };
   }
 
@@ -968,48 +1212,178 @@
     if (el) { el.focus(); const v = el.value; el.value = ""; el.value = v; }
   }
 
-  function weaponCard(w) {
-    const perkCol = (list) => (list || []).map(perkLink).join("");
-    const extra = [w.ammo && `Ammo gen ${w.ammo}`, w.shield && `Shield ${w.shield}`, w.charge && `Charge ${w.charge}`, w.impact && `Impact ${w.impact}`].filter(Boolean).join(" · ");
-    return `<li class="wcard el-${esc(w.element || "Kinetic")}">
-      <div class="wc-head">
-        <span class="tier tier-${esc(w.tier)}" title="Tier ${esc(w.tier)}">${esc(w.tier || "–")}</span>
-        <div class="wc-title"><span class="wc-name">${esc(w.name)}</span>${w.variant ? ` <span class="muted">${esc(w.variant)}</span>` : ""}
-          <div class="wc-meta"><span class="tag tag-el">${esc(w.element || "")}</span><span class="tag">${esc(w.type)}</span>${w.frame ? `<span class="tag">${esc(w.frame)}</span>` : ""}<span class="muted">#${esc(w.rank || "?")} in type · ${esc(w.source || "")}${w.season ? ` · S${esc(w.season)}` : ""}</span></div>
-        </div>
-      </div>
-      <div class="wc-rolls">
-        <div><span class="wc-lab">Column 3</span>${perkCol(w.perk1)}</div>
-        <div><span class="wc-lab">Column 4</span>${perkCol(w.perk2)}</div>
-        <div><span class="wc-lab">Origin</span>${perkCol(w.origin)}</div>
-        <div><span class="wc-lab">Barrel · Mag · MW</span><span class="perk plain">${esc([...(w.barrel || []), ...(w.mag || [])].join(", "))}${w.mw ? ` · ${esc(w.mw)} MW` : ""}</span></div>
-      </div>
-      ${w.notes ? `<p class="wc-notes">${esc(w.notes)}</p>` : ""}
-      ${extra ? `<p class="muted wc-extra">${esc(extra)}${w.enhanceable ? ` · Enhanceable: ${esc(w.enhanceable)}` : ""}</p>` : ""}
-    </li>`;
+  function weaponTile(w) {
+    const pick = w.eg?.[0];
+    return `<li><a class="wtile el-${esc(w.el)} ${w.tier === "Exotic" ? "exotic" : ""}" href="#/weapon/${w.slug}">
+      ${w.icon ? `<img src="${BNET}${esc(w.icon)}" alt="" loading="lazy" width="48" height="48">` : `<span class="wt-noimg"></span>`}
+      <span class="wt-text"><span class="wt-name">${esc(w.n)}</span><span class="wt-sub">${esc([w.el, w.frame, w.type].filter(Boolean).join(" · "))}</span></span>
+      ${pick?.tier ? tierBadge(pick.tier, "Endgame Analysis tier") : w.egExotic?.tier ? tierBadge(w.egExotic.tier, "Endgame Analysis tier") : ""}
+    </a></li>`;
   }
 
-  function renderExoticRatings(head, p) {
-    const byName = new Map(S.entries.filter((e) => e.cat === "exotic-weapon").map((e) => [normName(e.name.replace(/^the /i, "")), e]));
+  function renderExoticRatings() {
     const rows = S.weapons.exotics.map((x) => [
       x.tier || "", x.name, x.ammoType || "", (x.tags || []).join(", "),
       RATING[x.roam] || x.roam || "", RATING[x.dps] || x.dps || "", RATING[x.challenge] || x.challenge || "", RATING[x.speed] || x.speed || "",
       x.summary || "", x.usage || "",
     ]);
     const table = { columns: ["Tier", "Weapon", "Ammo", "Tags", "Roaming", "Boss DPS", "Challenge", "Speedrun", "What it does", "Verdict"], rows };
-    app.innerHTML = `${head}
-      <div class="table-tools"><input class="input" type="search" placeholder="Filter exotics…" data-tfilter aria-label="Filter exotics"><span class="muted" data-tcount></span>
-      <span class="legend"><span>Optimal / Viable / Situational / Wasted, per the sheet's key</span></span></div>
+    app.innerHTML = `
+      ${crumbs([["Home", "#/"], ["Weapons", "#/weapons"], ["Exotic ratings"]])}
+      <h1>Exotic weapon ratings</h1>
+      <p class="intro">How Endgame Analysis by ${esc(S.meta.sources.endgame?.author || "")} rates each exotic for roaming, boss DPS, challenges and speedruns (Optimal, Viable, Situational, Wasted).</p>
+      <nav class="tabbar" aria-label="Weapon views"><a href="#/weapons">All weapons</a><a href="#/weapons/exotic-ratings" aria-current="page">Exotic ratings table</a></nav>
+      <div class="table-tools"><input class="input" type="search" placeholder="Filter exotics…" data-tfilter aria-label="Filter exotics"><span class="muted" data-tcount></span></div>
       <div class="tablewrap" data-twrap></div>`;
     mountTable(app.querySelector("[data-twrap]"), table, app.querySelector("[data-tfilter]"), app.querySelector("[data-tcount]"), {
-      sortDefault: 0,
-      cell: (v, i, row) => {
-        if (i === 0) return `<span class="tier tier-${esc(v)}">${esc(v)}</span>`;
-        if (i === 1) { const e = byName.get(normName(v.replace(/^the /i, ""))); return e ? `<a href="#/explore?id=${encodeURIComponent(e.id)}" style="color:var(--exotic)">${esc(v)}</a>` : esc(v); }
+      sortDefault: 0, tierCol: 0,
+      cell: (v, i) => {
+        if (i === 0) return tierBadge(v);
+        if (i === 1) { const w = S.weaponByKey.get(normName(v)); return w ? `<a href="#/weapon/${w.slug}" style="color:var(--exotic)">${esc(v)}</a>` : esc(v); }
         return esc(v);
       },
-      tierCol: 0,
     });
+  }
+
+  // ------------------------------------------------------------ weapon page
+  async function renderWeapon(slug, perkSel) {
+    if (!S.weapons) app.innerHTML = `<p class="loading">Loading weapon…</p>`;
+    await ensureWeapons();
+    const w = S.weaponBySlug.get(slug);
+    if (!w) { app.innerHTML = `<p>Weapon not found. <a href="#/weapons">All weapons</a></p>`; return; }
+    const P = S.weapons.perks;
+    const recommended = new Map(); // normName -> label
+    (w.eg || []).forEach((x) => {
+      ["perk1", "perk2", "origin", "barrel", "mag"].forEach((k) => (x[k] || []).forEach((n, i) => {
+        const key = normName(n);
+        if (!recommended.has(key)) recommended.set(key, i === 0 ? "Top pick" : "Also suggested");
+      }));
+    });
+    const altSet = new Set(Object.values(w.alts || {}).flat().map((h) => normName(P[h]?.n)));
+    const pick = w.eg?.[0];
+    const comp = w.tier === "Exotic" && S.entries.find((e) => e.cat === "exotic-weapon" && normName(e.name) === normName(w.n));
+
+    // collapse enhanced copies into their base perk
+    const colHTML = (c) => {
+      const seen = new Map();
+      c.perks.forEach((h) => {
+        const p = P[h]; if (!p) return;
+        const k = normName(p.n);
+        if (!seen.has(k)) seen.set(k, { h, p, enhanced: false });
+        if (p.e) seen.get(k).enhanced = true;
+        else if (seen.get(k).p.e) seen.set(k, { h, p, enhanced: true });
+      });
+      const items = [...seen.values()];
+      const retired = (c.retired || []).map((h) => P[h]).filter((p) => p && !p.e && !seen.has(normName(p.n)));
+      return `<section class="pcol" aria-label="${esc(c.label)}">
+        <h3>${esc(c.label)}</h3>
+        <ul>${items.map(({ h, p, enhanced }) => {
+          const rec = recommended.get(normName(p.n));
+          const alt = altSet.has(normName(p.n));
+          return `<li><button type="button" class="pk ${rec ? "rec" : ""} ${alt ? "alt" : ""} ${perkSel === String(h) ? "sel" : ""}" data-perk="${h}" title="${esc(p.n)}${p.eg?.tier ? ` (Endgame tier ${p.eg.tier})` : ""}">
+            ${p.i ? `<img src="${BNET}${esc(p.i)}" alt="" loading="lazy" width="36" height="36">` : `<span class="pk-noimg"></span>`}
+            <span class="pk-name">${esc(p.n)}${enhanced && /Trait|Origin/.test(c.label) ? `<span class="pk-enh" title="Enhanced version available">↑</span>` : ""}</span>
+            ${p.eg?.tier ? `<span class="pk-tier tier-${esc(p.eg.tier)}">${esc(p.eg.tier)}</span>` : ""}
+          </button></li>`;
+        }).join("")}</ul>
+        ${retired.length ? `<details class="retired"><summary>${retired.length} retired</summary><p>${retired.map((p) => esc(p.n)).join(", ")}</p></details>` : ""}
+      </section>`;
+    };
+
+    const statBar = ([h, v]) => {
+      const name = S.weapons.statNames[h] || h;
+      const bar = !/Rounds Per Minute|Magazine|Charge Time|Draw Time|Ammo Generation|Swing Speed|Ammo Capacity|Blast Radius|Velocity|Recoil/i.test(name) || /Recoil Direction/i.test(name);
+      return `<div class="stat"><span class="st-name">${esc(name)}</span>${bar && v <= 100 ? `<span class="st-bar"><span style="width:${Math.max(0, Math.min(100, v))}%"></span></span>` : `<span class="st-bar st-none"></span>`}<span class="st-val">${esc(v)}</span></div>`;
+    };
+
+    const whyList = (x) => {
+      const rows = [...(x.perk1 || []), ...(x.perk2 || []), ...(x.origin || [])].filter((n) => n && n.toLowerCase() !== "none").map((n) => {
+        const p = Object.values(P).find((pp) => normName(pp.n) === normName(n) && !pp.e);
+        const eg = p?.eg;
+        return `<li><b>${esc(n)}</b> ${tierBadge(eg?.tier, "Endgame perk tier")}${eg?.trigger || eg?.effect ? `<span class="why-te">${esc(eg.trigger || "")}${eg.trigger && eg.effect ? " → " : ""}${esc(eg.effect || "")}</span>` : ""}</li>`;
+      });
+      return rows.length ? `<ul class="why">${rows.join("")}</ul>` : "";
+    };
+    const altsHTML = () => {
+      if (!w.alts) return "";
+      return `<section class="wcard-sec"><h3>Other strong perks it can roll</h3><p class="muted small">Not in the suggested roll, but rated A or better as perks in Endgame Analysis.</p>
+        ${Object.entries(w.alts).map(([col, hs]) => `<p><span class="muted">${esc(col)}:</span> ${hs.map((h) => { const p = P[h]; return `<button type="button" class="linkish" data-perk="${h}">${esc(p.n)}</button> ${tierBadge(p.eg?.tier, "Endgame perk tier")}`; }).join(", ")}</p>`).join("")}</section>`;
+    };
+
+    const verdict = w.eg?.length ? w.eg.map((x, i) => `
+      <section class="wcard-sec">
+        <h3>${w.eg.length > 1 ? `${esc(x.variant || "Standard version")}: ` : ""}Endgame verdict ${tierBadge(x.tier, "Endgame Analysis tier")}${x.rank ? ` <span class="muted">#${esc(x.rank)} in ${esc(x.type)}</span>` : ""}</h3>
+        ${i === 0 && w.blurb ? `<p class="blurb">${esc(w.blurb)}</p>` : ""}
+        <dl class="kv roll">
+          ${x.barrel?.length ? `<dt>Barrel</dt><dd>${esc(x.barrel.join(" or "))}</dd>` : ""}
+          ${x.mag?.length ? `<dt>Magazine</dt><dd>${esc(x.mag.join(" or "))}</dd>` : ""}
+          ${x.perk1?.length ? `<dt>Trait 1</dt><dd>${esc(x.perk1.join(" or "))}</dd>` : ""}
+          ${x.perk2?.length ? `<dt>Trait 2</dt><dd>${esc(x.perk2.join(" or "))}</dd>` : ""}
+          ${x.origin?.length ? `<dt>Origin</dt><dd>${esc(x.origin.join(" or "))}</dd>` : ""}
+          ${x.mw ? `<dt>Masterwork</dt><dd>${esc(x.mw)}</dd>` : ""}
+        </dl>
+        <h4>Why these perks</h4>${whyList(x)}
+      </section>`).join("") : w.egExotic ? `
+      <section class="wcard-sec"><h3>Endgame rating ${tierBadge(w.egExotic.tier)}</h3>
+        ${w.egExotic.summary ? `<p class="blurb">${esc(w.egExotic.summary)}</p>` : ""}
+        <ul class="eg-rates">${[["Roaming", w.egExotic.roam], ["Boss DPS", w.egExotic.dps], ["Challenge", w.egExotic.challenge], ["Speedrun", w.egExotic.speed]].filter(([, v]) => v).map(([k, v]) => `<li><span class="muted">${k}</span> <b>${esc(RATING[v] || v)}</b></li>`).join("")}</ul>
+        ${w.egExotic.usage ? `<p class="muted">${esc(w.egExotic.usage)}</p>` : ""}</section>`
+      : `<section class="wcard-sec"><h3>Not ranked</h3><p class="muted">Endgame Analysis doesn't rank this weapon, usually because it's outclassed or no longer obtainable. Perk ratings below still apply.</p></section>`;
+
+    app.innerHTML = `
+      ${crumbs([["Home", "#/"], ["Weapons", "#/weapons"], [w.n]])}
+      <header class="whero ${w.tier === "Exotic" ? "exotic" : ""} el-${esc(w.el)}" ${w.shot ? `style="--shot:url('${BNET}${esc(w.shot)}')"` : ""}>
+        ${w.icon ? `<img class="wh-icon" src="${BNET}${esc(w.icon)}" alt="" width="84" height="84">` : ""}
+        <div>
+          <h1>${esc(w.n)}</h1>
+          <p class="wh-type">${esc([w.tier, w.type].join(" "))}</p>
+          <div class="wh-tags"><span class="tag tag-el">${esc(w.el)}</span><span class="tag">${esc(w.ammo)} ammo</span><span class="tag">${esc(w.slot)} slot</span>${w.frame ? `<button type="button" class="tag tag-btn" data-perk="${w.frameHash}">${esc(w.frame)}</button>` : ""}${w.craftable ? `<span class="tag">Craftable</span>` : ""}${w.hasAdept ? `<span class="tag">Adept version</span>` : ""}</div>
+          ${w.flavor ? `<p class="wh-flavor">${esc(w.flavor)}</p>` : ""}
+          ${w.src ? `<p class="wh-src">${esc(w.src)}</p>` : ""}
+        </div>
+      </header>
+      <div class="wpage">
+        <div class="wpage-main">
+          <section class="perks-grid" aria-label="Perk pool">
+            <div class="pg-head"><h2>Perks it can roll</h2><span class="legend"><span><i class="lg rec"></i>Suggested roll</span><span><i class="lg alt"></i>Other strong pick</span><span>↑ enhanced available</span></span></div>
+            <div class="pcols">${(w.tier === "Exotic" && w.frameHash ? [{ label: "Exotic perk", perks: [w.frameHash] }, ...w.cols] : w.cols).map(colHTML).join("")}</div>
+          </section>
+          <section class="perk-detail" data-perkdetail aria-live="polite"><p class="muted">Select a perk to see what it does.</p></section>
+          ${comp ? `<section class="wcard-sec"><h3>Compendium notes</h3><div class="desc">${fmt(comp.desc)}</div><p><a href="${itemHref(comp)}">Open the full Compendium entry</a></p></section>` : ""}
+        </div>
+        <aside class="wpage-side">
+          ${verdict}
+          ${altsHTML()}
+          ${w.stats?.length ? `<section class="wcard-sec"><h3>Base stats</h3><div class="stats">${w.stats.map(statBar).join("")}</div></section>` : ""}
+        </aside>
+      </div>
+      <p class="source-note">Weapon data from Bungie's Destiny 2 item manifest${S.meta.bungieVersion ? ` (${esc(S.meta.bungieVersion)})` : ""}. ${w.eg || w.egExotic ? `Tiers, suggested rolls and perk ratings from <a href="${esc(sheetUrl("endgame", w.tier === "Exotic" ? "Exotic Weapons" : w.eg?.[0]?.tab) || "#")}" target="_blank" rel="noopener">Endgame Analysis</a> by ${esc(S.meta.sources.endgame?.author || "")}; the summary is generated from that sheet's data.` : ""}${comp ? ` Exact values from the Destiny Data Compendium.` : ""}</p>`;
+
+    const showPerk = (h) => {
+      const p = P[h];
+      if (!p) return;
+      app.querySelectorAll(".pk.sel, .tag-btn.sel").forEach((x) => x.classList.remove("sel"));
+      app.querySelectorAll(`[data-perk="${h}"]`).forEach((x) => x.classList.add("sel"));
+      const ce = compendiumPerk(p.n);
+      const box = app.querySelector("[data-perkdetail]");
+      box.innerHTML = `
+        <div class="pd-head">${p.i ? `<img src="${BNET}${esc(p.i)}" alt="" width="44" height="44">` : ""}<div><h3>${esc(p.n)} ${tierBadge(p.eg?.tier, "Endgame perk tier")}</h3><span class="muted">${esc(p.t)}</span></div></div>
+        ${p.d ? `<p>${esc(p.d)}</p>` : ""}
+        ${p.s?.length ? `<p class="muted">${p.s.map(([sh, v]) => `${v > 0 ? "+" : ""}${v} ${esc(S.weapons.statNames[sh] || "")}`).join(" · ")}</p>` : ""}
+        ${p.eg?.trigger || p.eg?.effect ? `<p><span class="muted">Endgame Analysis:</span> ${esc(p.eg.trigger || "")}${p.eg.trigger && p.eg.effect ? " → " : ""}${esc(p.eg.effect || "")}</p>` : ""}
+        ${p.eg?.analysis ? `<p class="muted">${esc(p.eg.analysis)}</p>` : ""}
+        ${ce ? `<div class="pd-comp"><h4>Exact values (Compendium)</h4><div class="desc">${fmt(ce.desc)}</div><p><a href="${itemHref(ce)}">Open ${esc(ce.name)}</a></p></div>` : ""}
+        <p><a href="#/weapons?perk=${encodeURIComponent(p.n)}">Other weapons that can roll ${esc(p.n)}</a></p>`;
+    };
+    app.onclick = (ev) => {
+      const b = ev.target.closest("[data-perk]");
+      if (!b) return;
+      showPerk(b.dataset.perk);
+      if (window.matchMedia("(max-width: 900px)").matches) app.querySelector("[data-perkdetail]").scrollIntoView({ behavior: "smooth", block: "nearest" });
+    };
+    // open on the top pick so the panel isn't empty
+    const first = w.tier === "Exotic" ? w.frameHash : w.cols.find((c) => c.label.startsWith("Trait"))?.perks.find((h) => recommended.has(normName(P[h]?.n)));
+    if (first) showPerk(first);
   }
 
   // ------------------------------------------------------------ about / credits
@@ -1031,6 +1405,11 @@
         <h1>Credits</h1>
         <p>All of the numbers here come from community testers who spend hundreds of hours measuring the game. This site only re-arranges their published spreadsheets so they're easier to search and cross-reference. Corrections belong with the original authors, and the original sheets are always the source of truth.</p>
         <div class="sources">${cards}</div>
+        <article class="source" style="max-width:520px">
+          <h2>Bungie's Destiny 2 API</h2>
+          <p class="by">by Bungie</p>
+          <p>Every weapon's name, icon, stats and full perk pool come from the public item manifest${S.meta.bungieVersion ? ` (version ${esc(S.meta.bungieVersion)})` : ""}. Icons and screenshots load straight from bungie.net.</p>
+        </article>
         <h2>About this mirror</h2>
         <p>Data last copied on ${esc(fetched)}. Text is copied verbatim; keyword tags and synergy links are generated automatically and can be wrong.</p>
         <p>Unofficial fan project. Not affiliated with Bungie or with the spreadsheet authors. Destiny 2 is a trademark of Bungie, Inc.</p>
@@ -1041,13 +1420,18 @@
   function route() {
     const { parts } = parseHash();
     const page = parts[0] || "home";
-    document.querySelectorAll("[data-nav]").forEach((a) => {
-      if (a.dataset.nav === page) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+    const navFor = { item: "explore", wiki: "home", artifact: "home", weapon: "weapons" };
+    document.querySelectorAll("[data-nav]").forEach((el) => {
+      if (el.dataset.nav === (navFor[page] || page)) el.setAttribute("aria-current", "page"); else el.removeAttribute("aria-current");
     });
     if (page !== "explore") app.onclick = null;
     if (page === "explore") renderExplore();
-    else if (page === "build") renderBuild();
+    else if (page === "item") renderItem(parts[1]);
+    else if (page === "wiki") renderCategory(parts[1]);
+    else if (page === "artifact") renderArtifact(parts[1]);
     else if (page === "weapons") renderWeapons(parts[1]);
+    else if (page === "weapon") renderWeapon(parts[1]);
+    else if (page === "build") renderBuild();
     else if (page === "boss") renderBoss(parts[1]);
     else if (page === "about") renderAbout();
     else renderHome();
@@ -1070,7 +1454,6 @@
       S.keywords = ent.keywords;
       S.shared = ent.prismaticShared || {};
       S.meta = meta;
-      S.weaponCount = meta.counts?.weapons;
       S.entries.forEach((e) => S.byId.set(e.id, e));
       S.keywords.forEach((k) => S.kwByName.set(k.name, k));
       // glossary entries (subclass "verbs") double as keyword definitions

@@ -1,8 +1,11 @@
 {
  "fetched": "2026-10-15T10:11:05.674Z",
  "counts": {
-  "weapons": 748
+  "weapons": 1104,
+  "legendaries": 963,
+  "exotics": 141
  },
+ "bungieVersion": "244213.26.06.29.2000-1-bnet.65864",
  "sources": {
   "compendium": {
    "id": "1WaxvbLx7UoSZaBqdFr1u32F2uWVLo-CJunJB4nlGUE4",
