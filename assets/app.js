@@ -857,9 +857,27 @@
   // ------------------------------------------------------------ weapons index
   function readWeaponParams() {
     const { q } = parseHash();
-    return { q: q.get("q") || "", type: q.get("type") || "", el: q.get("el") || "", tier: q.get("tier") || "", ammo: q.get("ammo") || "", rarity: q.get("rarity") || "", perk: q.get("perk") || "", sort: q.get("sort") || "" };
+    return { q: q.get("q") || "", type: q.get("type") || "", el: q.get("el") || "", tier: q.get("tier") || "", ammo: q.get("ammo") || "", rarity: q.get("rarity") || "", perk: q.get("perk") || "", sort: q.get("sort") || "", cat: q.get("cat") || "" };
   }
   const weaponHash = (p) => { const q = new URLSearchParams(Object.entries(p).filter(([, v]) => v)); return `#/weapons${q.toString() ? "?" + q : ""}`; };
+
+  // the Compendium writes catalyst effects as paragraphs that start with "↑Name:" or "↑Catalyst"
+  function splitCatalystText(desc) {
+    // the catalyst section runs from its first "↑Name:" paragraph to the end of the entry
+    const paras = (desc || "").split(/\n\s*\n/);
+    const start = paras.findIndex((t) => /^↑(Catalyst\b|[^\n:]{1,80}:)/.test(t.trim()));
+    if (start < 0) return { cat: [], rest: paras.join("\n\n") };
+    return { cat: paras.slice(start), rest: paras.slice(0, start).join("\n\n") };
+  }
+  function compendiumExotic(w) {
+    if (w.tier !== "Exotic") return null;
+    if (!S.compExotic) {
+      S.compExotic = new Map();
+      S.entries.filter((e) => e.cat === "exotic-weapon").forEach((e) => { if (!S.compExotic.has(normName(e.name))) S.compExotic.set(normName(e.name), e); });
+    }
+    return S.compExotic.get(normName(w.n)) || null;
+  }
+  const hasCatalyst = (w) => !!(w.catalyst || splitCatalystText(compendiumExotic(w)?.desc).cat.length);
 
   async function renderWeapons(view) {
     if (!S.weapons) app.innerHTML = `<p class="loading">Loading weapons…</p>`;
@@ -871,7 +889,7 @@
     const terms = p.q.toLowerCase().split(/\s+/).filter(Boolean);
     const perkKey = normName(p.perk);
     let rows = all.filter((w) => (!p.type || w.type === p.type) && (!p.el || w.el === p.el) && (!p.ammo || w.ammo === p.ammo) &&
-      (!p.rarity || w.tier === p.rarity) && (!p.tier || w.eg?.some((x) => x.tier === p.tier)) &&
+      (!p.rarity || w.tier === p.rarity) && (!p.tier || w.eg?.some((x) => x.tier === p.tier)) && (!p.cat || hasCatalyst(w)) &&
       (!perkKey || w.cols.some((c) => c.perks.some((h) => normName(S.weapons.perks[h]?.n) === perkKey))) &&
       (!terms.length || terms.every((t) => (w._hay ||= [w.n, w.type, w.frame, w.src, w.el].join(" ").toLowerCase()).includes(t))));
     const sorters = {
@@ -895,7 +913,7 @@
         <select class="input" data-wsel="sort" aria-label="Sort"><option value="">Sort: name</option><option value="tier" ${p.sort === "tier" ? "selected" : ""}>Sort: Endgame tier</option><option value="type" ${p.sort === "type" ? "selected" : ""}>Sort: type, then rank</option></select>
       </div>
       <div class="wfilters">
-        <div class="chips">${chip("rarity", "Legendary", "Legendary")}${chip("rarity", "Exotic", "Exotic", "chip-exotic")}</div>
+        <div class="chips">${chip("rarity", "Legendary", "Legendary")}${chip("rarity", "Exotic", "Exotic", "chip-exotic")}${chip("cat", "1", "Has catalyst", "chip-exotic")}</div>
         <div class="chips">${["Kinetic", "Arc", "Solar", "Void", "Stasis", "Strand"].map((el) => chip("el", el, `<span class="dot"></span>${el}`, `el-${el}`)).join("")}</div>
         <div class="chips">${["Primary", "Special", "Heavy"].map((a) => chip("ammo", a, a)).join("")}</div>
         <div class="chips">${TIER_ORDER.slice(0, 6).map((t) => chip("tier", t, `Tier ${t}`)).join("")}</div>
@@ -972,7 +990,8 @@
     });
     const altSet = new Set(Object.values(w.alts || {}).flat().map((h) => normName(P[h]?.n)));
     const pick = w.eg?.[0];
-    const comp = w.tier === "Exotic" && S.entries.find((e) => e.cat === "exotic-weapon" && normName(e.name) === normName(w.n));
+    const comp = compendiumExotic(w);
+    const compSplit = splitCatalystText(comp?.desc);
 
     // collapse enhanced copies into their base perk
     const colHTML = (c) => {
@@ -1060,7 +1079,8 @@
             <div class="pcols">${(w.tier === "Exotic" && w.frameHash ? [{ label: "Exotic perk", perks: [w.frameHash] }, ...w.cols] : w.cols).map(colHTML).join("")}</div>
           </section>
           <section class="perk-detail" data-perkdetail aria-live="polite"><p class="muted">Select a perk to see what it does.</p></section>
-          ${comp ? `<section class="wcard-sec"><h3>Compendium notes</h3><div class="desc">${fmt(comp.desc)}</div><p><a href="${itemHref(comp)}">Open the full Compendium entry</a></p></section>` : ""}
+          ${catalystHTML(w, compSplit.cat)}
+          ${comp && compSplit.rest.trim() ? `<section class="wcard-sec"><h3>Compendium notes</h3><div class="desc">${fmt(compSplit.rest)}</div><p><a href="${itemHref(comp)}">Open the full Compendium entry</a></p></section>` : ""}
         </div>
         <aside class="wpage-side">
           ${w.stats?.length ? `<section class="wcard-sec"><h3>Base stats</h3><div class="stats">${w.stats.map(statBar).join("")}</div></section>` : ""}
@@ -1139,6 +1159,30 @@
   function weaponThumb(w, size = 40) {
     if (!w) return `<span class="thumb-empty" style="width:${size}px;height:${size}px"></span>`;
     return `<a class="thumb" href="#/weapon/${w.slug}" title="${esc(w.n)}" aria-label="${esc(w.n)}"><img src="${BNET}${esc(w.icon)}" alt="" width="${size}" height="${size}" loading="lazy"></a>`;
+  }
+
+  // ------------------------------------------------------------ exotic catalysts
+  function catalystHTML(w, compParas) {
+    const c = w.catalyst;
+    if (!c && !compParas.length) return "";
+    const stats = (c?.s || []).map(([h, v]) => `<li>${v > 0 ? "+" : ""}${esc(v)} ${esc(S.weapons.statNames[h] || h)}</li>`).join("");
+    const perks = (c?.perks || []).map((p) => `<li class="cat-perk">${p.i ? `<img src="${BNET}${esc(p.i)}" alt="" width="36" height="36" loading="lazy">` : ""}<div><b>${esc(p.n)}</b>${p.d ? `<p>${esc(p.d)}</p>` : ""}</div></li>`).join("");
+    const generic = /^Defeat targets using this weapon to unlock this upgrade\.?$/i;
+    let how = "";
+    if (c?.inPerks) how = "Part of the weapon's perk pool, so there's no objective to complete.";
+    else if (c) {
+      const objs = (c.obj || []).filter(([, n]) => n > 0).map(([d, n]) => `${esc(d || "Progress")}: ${Number(n).toLocaleString()}`).join(" · ");
+      const extra = c.unlock && !generic.test(c.unlock) ? esc(c.unlock) : "";
+      how = [objs, extra].filter(Boolean).join(". ") || (c.unlock ? esc(c.unlock) : "");
+    }
+    return `<section class="wcard-sec catalyst">
+      <h3>${c?.i ? `<img src="${BNET}${esc(c.i)}" alt="" width="28" height="28">` : ""}${esc(c?.n || "Catalyst")}</h3>
+      ${perks ? `<ul class="cat-perks">${perks}</ul>` : ""}
+      ${stats ? `<ul class="cat-stats" aria-label="Stat bonuses">${stats}</ul>` : ""}
+      ${how ? `<p class="cat-how"><b>How to unlock:</b> ${how}</p>` : c ? `<p class="cat-how muted">Bungie's data doesn't list an unlock objective.</p>` : ""}
+      ${compParas.length ? `<div class="cat-comp"><h4>Exact values (Compendium)</h4><div class="desc">${fmt(compParas.map((t) => t.replace(/^\s*↑/, "")).join("\n\n"))}</div></div>` : ""}
+      ${!c ? `<p class="muted">Bungie's item data doesn't have a separate catalyst item for this weapon; these values come from the Compendium.</p>` : ""}
+    </section>`;
   }
 
   // ------------------------------------------------------------ pictures for the boss tables
