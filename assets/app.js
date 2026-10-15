@@ -140,35 +140,6 @@
   const makes = (e, k) => rolesOf(e)[k]?.has("produce");
   const uses = (e, k) => rolesOf(e)[k]?.has("use");
 
-  function compatible(a, b) {
-    if (a.cls && b.cls && a.cls !== b.cls) return false;
-    const sub = new Set(["fragment", "aspect", "super", "grenade", "melee"]);
-    if (sub.has(a.cat) && sub.has(b.cat) && a.el && b.el && a.el !== b.el && a.el !== "Prismatic" && b.el !== "Prismatic") return false;
-    return true;
-  }
-
-  function relatedTo(e, limit = 12) {
-    const mine = rolesOf(e);
-    const scored = [];
-    for (const o of S.entries) {
-      if (o === e || o.cat === "verb" || o.cat === "mechanic" || !compatible(e, o)) continue;
-      const theirs = rolesOf(o);
-      const why = [];
-      let score = 0;
-      for (const [k, r] of Object.entries(mine)) {
-        const t = theirs[k];
-        if (!t) continue;
-        const grp = S.kwByName.get(k)?.group;
-        const w = grp === "Ability" || grp === "General" ? 0.5 : 1;
-        if (r.has("produce") && t.has("use")) { score += 2 * w; why.push(`uses your ${k}`); }
-        if (r.has("use") && t.has("produce")) { score += 2 * w; why.push(`makes ${k}`); }
-      }
-      if (score > 0) scored.push({ o, score, why });
-    }
-    scored.sort((a, b) => b.score - a.score || a.o.name.localeCompare(b.o.name));
-    return scored.slice(0, limit);
-  }
-
   // ------------------------------------------------------------ shared rendering
   function tagsFor(e) {
     const c = CATS[e.cat] || { label: e.cat };
@@ -180,6 +151,29 @@
     return bits.join("");
   }
   const elClass = (e) => (e.el ? `el-${e.el}` : e.weaponEls?.length ? `el-${e.weaponEls[e.weaponEls.length - 1]}` : "");
+
+  const RATING = { "✔": "Optimal", "▲": "Viable", "!": "Situational", "✖": "Wasted" };
+  function endgameHTML(e) {
+    const credit = `<p class="eg-credit">From <a href="${esc(sheetUrl("endgame", e.egExotic ? "Exotic Weapons" : e.eg?.[0]?.tab) || "#")}" target="_blank" rel="noopener">Endgame Analysis</a> by ${esc(S.meta.sources.endgame?.author || "TheAegisRelic")}. PvE endgame ratings, not exact values.</p>`;
+    if (e.egExotic) {
+      const x = e.egExotic;
+      const rate = [["Roaming", x.roam], ["Boss DPS", x.dps], ["Challenge", x.challenge], ["Speedrun", x.speed]]
+        .filter(([, v]) => v).map(([k, v]) => `<li><span class="muted">${k}</span> <b>${esc(RATING[v] || v)}</b></li>`).join("");
+      return `<section class="eg"><h3>Endgame rating ${x.tier ? `<span class="tier tier-${esc(x.tier)}">${esc(x.tier)}</span>` : ""}</h3>
+        ${x.summary ? `<p>${esc(x.summary)}</p>` : ""}${rate ? `<ul class="eg-rates">${rate}</ul>` : ""}
+        ${x.usage ? `<p class="muted">${esc(x.usage)}</p>` : ""}${credit}</section>`;
+    }
+    if (!e.eg?.length) return "";
+    return `<section class="eg"><h3>Endgame rating ${[...new Set(e.eg.map((n) => n.tier).filter(Boolean))].map((t) => `<span class="tier tier-${esc(t)}">${esc(t)}</span>`).join(" ")}</h3>
+      ${e.eg.map((n) => `<dl class="kv">
+        ${e.eg.length > 1 && n.pieces ? `<dt>Piece</dt><dd>${esc(n.pieces)}-piece</dd>` : ""}
+        ${n.trigger ? `<dt>Trigger</dt><dd>${esc(n.trigger)}</dd>` : ""}
+        ${n.effect ? `<dt>Effect</dt><dd>${esc(n.effect)}</dd>` : ""}
+        ${n.tags?.length ? `<dt>Tags</dt><dd>${esc(n.tags.join(", "))}</dd>` : ""}
+        ${n.notable ? `<dt>Notable on</dt><dd>${esc(n.notable)}</dd>` : ""}
+        ${n.analysis ? `<dt>Notes</dt><dd>${esc(n.analysis)}</dd>` : ""}
+      </dl>`).join("")}${credit}</section>`;
+  }
 
   function detailHTML(e) {
     const c = CATS[e.cat] || {};
@@ -211,10 +205,7 @@
         return `<button type="button" class="chip el-${esc(g)}" data-kw="${esc(k)}"><span class="dot"></span>${esc(k)} <span class="role">${role}</span></button>`;
       }).join("");
 
-    const rel = relatedTo(e);
-    const relHTML = rel.length
-      ? rel.map(({ o, why }) => `<button type="button" data-open="${esc(o.id)}" class="${elClass(o)}"><span class="rel-name" ${CATS[o.cat]?.exotic ? 'style="color:var(--exotic)"' : ""}>${esc(o.name)}</span><span class="tag">${esc(CATS[o.cat]?.label || o.cat)}</span>${o.el ? `<span class="tag tag-el el-${esc(o.el)}">${esc(o.el)}</span>` : ""}<span class="rel-why">${esc([...new Set(why)].slice(0, 3).join(", "))}</span></button>`).join("")
-      : `<p class="muted">No obvious keyword links. Check the description for conditions the tagger can't read.</p>`;
+    const egHTML = endgameHTML(e);
 
     const slot = SLOT_BY_CAT[e.cat];
     const src = sheetUrl("compendium", e.sheet);
@@ -224,8 +215,8 @@
       <div class="detail-meta">${tagsFor(e)}</div>
       ${body}
       ${kv.length ? `<section><dl class="kv">${kv.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${fmt(v)}</dd>`).join("")}</dl></section>` : ""}
-      ${kwChips ? `<section><h3>Keywords</h3><div class="kwlist">${kwChips}</div></section>` : ""}
-      <section><h3>Works well with</h3><div class="related">${relHTML}</div></section>
+      ${egHTML}
+      ${kwChips ? `<section><h3>Keywords</h3><p class="muted" style="margin:0 0 8px;font-size:.9rem">Select one to list everything else that makes or uses it.</p><div class="kwlist">${kwChips}</div></section>` : ""}
       <div class="detail-actions">
         ${slot ? `<button type="button" class="btn btn-primary" data-addbuild="${esc(e.id)}">Add to build</button>` : ""}
         ${src ? `<a class="btn" href="${esc(src)}" target="_blank" rel="noopener">Open in the Compendium (${esc(e.sheet)})</a>` : ""}
@@ -399,8 +390,8 @@
     const n = S.entries.length.toLocaleString();
     return `
       <h2>Look anything up</h2>
-      <p>${n} perks, abilities, exotics, mods and mechanics from the Destiny Data Compendium, in one searchable list.</p>
-      <p>Pick something to see its exact values and what it works well with. Underlined words like <button type="button" class="kw el-Arc" data-kw="Jolt" style="color:var(--arc);background:none;border:0;padding:0;text-decoration:underline dotted;cursor:pointer;font:inherit">Jolt</button> or <button type="button" class="kw el-Solar" data-kw="Scorch" style="color:var(--solar);background:none;border:0;padding:0;text-decoration:underline dotted;cursor:pointer;font:inherit">Scorch</button> jump to everything that makes or uses that effect.</p>
+      <p>${n} perks, abilities, exotics, mods and mechanics from the Destiny Data Compendium, in one searchable list. Filter by keyword to find everything that makes or uses an effect.</p>
+      <p>Pick something to see its exact values and, where Endgame Analysis covers it, its endgame rating. Underlined words like <button type="button" class="kw el-Arc" data-kw="Jolt" style="color:var(--arc);background:none;border:0;padding:0;text-decoration:underline dotted;cursor:pointer;font:inherit">Jolt</button> or <button type="button" class="kw el-Solar" data-kw="Scorch" style="color:var(--solar);background:none;border:0;padding:0;text-decoration:underline dotted;cursor:pointer;font:inherit">Scorch</button> jump to everything that makes or uses that effect.</p>
       <p class="legend"><span class="pvp">[bracketed] = PvP value</span><span class="enh">↑ = enhanced or catalyst value</span><span>? = not yet tested</span></p>
       <p><a href="#/build">Start a build</a> to see which pieces feed each other.</p>`;
   }
@@ -763,8 +754,8 @@
     mountTable(app.querySelector("[data-twrap]"), t, app.querySelector("[data-tfilter]"), app.querySelector("[data-tcount]"));
   }
 
-  function mountTable(wrap, t, filterInput, countEl) {
-    let sortCol = -1, dir = 1;
+  function mountTable(wrap, t, filterInput, countEl, opts = {}) {
+    let sortCol = opts.sortDefault ?? -1, dir = 1;
     const numericCols = t.columns.map((_, i) => {
       const vals = t.rows.map((r) => r[i]).filter((v) => v && v !== "/" && v !== "N/A");
       return vals.length > 0 && vals.filter(isNum).length / vals.length > 0.7;
@@ -775,6 +766,7 @@
       if (sortCol >= 0) {
         rows.sort((a, b) => {
           const x = a[sortCol] || "", y = b[sortCol] || "";
+          if (sortCol === opts.tierCol) return (tierRank(x) - tierRank(y)) * dir;
           if (numericCols[sortCol]) {
             const nx = isNum(x) ? toNum(x) : -Infinity, ny = isNum(y) ? toNum(y) : -Infinity;
             return (nx - ny) * dir;
@@ -787,7 +779,7 @@
         <tbody>${rows.map((r) => `<tr>${t.columns.map((_, i) => {
           const v = r[i] || "";
           const cls = numericCols[i] && isNum(v) ? "num" : v.length > 40 ? "wrap" : "";
-          return `<td class="${cls}">${esc(v)}</td>`;
+          return `<td class="${cls}">${opts.cell ? opts.cell(v, i, r) : esc(v)}</td>`;
         }).join("")}</tr>`).join("")}</tbody></table>`;
     };
     wrap.onclick = (ev) => {
@@ -820,57 +812,204 @@
     app.querySelector("#encsel").onchange = (ev) => go(`#/boss/encounters?e=${encodeURIComponent(ev.target.value)}`, true);
   }
 
-  // ------------------------------------------------------------ sheet viewer
-  async function renderSheets(src, gid) {
-    const sources = S.meta.sources;
-    src = sources[src] ? src : "compendium";
-    if (!S.sheets[src]) {
-      app.innerHTML = `<p class="loading">Loading ${esc(sources[src].title)}…</p>`;
-      S.sheets[src] = await (await fetch(`data/sheets/${src}.json`)).json();
-    }
-    const tabs = S.sheets[src];
-    const tab = tabs.find((t) => t.gid === gid) || tabs[0];
-    const covered = new Set();
-    const spans = new Map();
-    tab.merges.forEach(([r, c, rs, cs]) => {
-      spans.set(`${r},${c}`, [rs, cs]);
-      for (let i = 0; i < rs; i++) for (let j = 0; j < cs; j++) if (i || j) covered.add(`${r + i},${c + j}`);
-    });
-    const links = new Map(tab.links.map(([r, c, text, href]) => [`${r},${c}`, href]));
-    const width = Math.max(1, ...tab.grid.map((r) => r.length), ...tab.merges.map(([, c, , cs]) => c + cs));
-    const rowsHTML = tab.grid.map((row, r) => {
-      if (!row.length && ![...spans.keys()].some((k) => k.startsWith(r + ","))) return "";
-      let tds = "";
-      for (let c = 0; c < width; c++) {
-        const key = `${r},${c}`;
-        if (covered.has(key)) continue;
-        const v = row[c] || "";
-        const sp = spans.get(key);
-        const attrs = sp ? `${sp[0] > 1 ? ` rowspan="${sp[0]}"` : ""}${sp[1] > 1 ? ` colspan="${sp[1]}"` : ""}` : "";
-        const href = links.get(key);
-        const inner = src === "compendium" ? fmt(v) : esc(v);
-        tds += `<td${attrs}${v.length > 140 ? ' class="long"' : ""}>${href && /^https?:/.test(href) ? `<a href="${esc(href)}" target="_blank" rel="noopener">${inner}</a>` : inner}</td>`;
-      }
-      return `<tr>${tds}</tr>`;
-    }).join("");
+  // ------------------------------------------------------------ home
+  const HOME = [
+    { title: "Exotics", items: [
+      { label: "Exotic weapons", cat: "exotic-weapon", blurb: "Perks, catalysts and endgame ratings", exotic: true },
+      { label: "Exotic armor", cat: "exotic-armor", blurb: "Every exotic perk, by class", exotic: true },
+      { label: "Exotic class items", cat: "exotic-class", blurb: "Spirit perks for both columns", exotic: true },
+    ] },
+    { title: "Subclasses", items: [
+      { label: "Aspects", cat: "aspect", blurb: "With fragment slots" },
+      { label: "Fragments", cat: "fragment", blurb: "With stat changes" },
+      { label: "Supers", cat: "super" },
+      { label: "Grenades", cat: "grenade" },
+      { label: "Melees", cat: "melee" },
+      { label: "Class abilities", cat: "class-ability", blurb: "Cooldowns and chunk scalars" },
+      { label: "Keywords", cat: "verb", blurb: "Jolt, Scorch, Devour and the rest" },
+    ] },
+    { title: "Weapons and armor", items: [
+      { label: "Legendary weapons", href: "#/weapons", count: () => S.weapons?.weapons.length || S.weaponCount, blurb: "Ranked by type, with the best rolls" },
+      { label: "Weapon traits", cat: "weapon-trait" },
+      { label: "Origin traits", cat: "origin-trait" },
+      { label: "Weapon frames", cat: "intrinsic" },
+      { label: "Armor set bonuses", cat: "armor-set" },
+      { label: "Armor mods", cat: "armor-mod" },
+      { label: "Artifact perks", cat: "artifact-perk" },
+    ] },
+    { title: "Endgame", items: [
+      { label: "Boss health", href: "#/boss/health", blurb: "Health at every power delta" },
+      { label: "Boss damage", href: "#/boss/weapons", blurb: "Weapon and ability damage tests" },
+      { label: "Sustained DPS", href: "#/boss/sustained" },
+      { label: "Activity modifiers", cat: "mechanic" },
+      { label: "Build planner", href: "#/build", blurb: "See which pieces feed each other" },
+    ] },
+  ];
+
+  function renderHome() {
+    const counts = {};
+    S.entries.forEach((e) => { counts[e.cat] = (counts[e.cat] || 0) + 1; });
     app.innerHTML = `
-      <h1>Original sheets</h1>
-      <p class="intro">Every tab as published, layout included, for anything the structured views don't cover (Game Mechanics tables, changelogs, testing notes, legacy tabs).</p>
-      <div class="sheet-pick">
-        <label class="visually-hidden" for="srcsel">Spreadsheet</label>
-        <select id="srcsel" class="input">${Object.entries(sources).map(([k, s]) => `<option value="${k}" ${k === src ? "selected" : ""}>${esc(s.title)}</option>`).join("")}</select>
-        <label class="visually-hidden" for="tabsel">Tab</label>
-        <select id="tabsel" class="input">${tabs.map((t) => `<option value="${t.gid}" ${t === tab ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select>
-        <a href="https://docs.google.com/spreadsheets/d/${esc(sources[src].id)}/edit#gid=${esc(tab.gid)}" target="_blank" rel="noopener">Open in Google Sheets</a>
-        <span class="muted">by ${esc(sources[src].author)}</span>
-      </div>
-      <div class="tablewrap" style="max-height:calc(100vh - 220px)"><table class="sheet"><tbody>${rowsHTML}</tbody></table></div>`;
-    app.querySelector("#srcsel").onchange = (ev) => go(`#/sheets/${ev.target.value}`, true);
-    app.querySelector("#tabsel").onchange = (ev) => go(`#/sheets/${src}/${ev.target.value}`, true);
-    app.onclick = (ev) => {
-      const k = ev.target.closest("[data-kw]");
-      if (k) go(`#/explore?kw=${encodeURIComponent(k.dataset.kw)}`);
+      <section class="home-hero">
+        <h1>Destiny 2, by the numbers</h1>
+        <p>Exact values for perks, abilities and exotics, weapon rankings and boss data, gathered from the community's testing spreadsheets.</p>
+        <form class="home-search" role="search">
+          <label class="visually-hidden" for="homeq">Search everything</label>
+          <input id="homeq" class="input" type="search" placeholder="Search a perk, exotic, aspect, mod…" autocomplete="off">
+          <button class="btn btn-primary" type="submit">Search</button>
+        </form>
+      </section>
+      ${HOME.map((g) => `
+        <section class="home-group" aria-labelledby="hg-${slugify(g.title)}">
+          <h2 id="hg-${slugify(g.title)}">${esc(g.title)}</h2>
+          <div class="home-grid">${g.items.map((it) => {
+            const href = it.href || `#/explore?cat=${it.cat}`;
+            const n = it.cat ? counts[it.cat] : it.count?.();
+            return `<a class="home-tile ${it.exotic ? "exotic" : ""}" href="${href}">
+              <span class="ht-label">${esc(it.label)}</span>
+              ${n ? `<span class="ht-count">${n.toLocaleString()}</span>` : ""}
+              ${it.blurb ? `<span class="ht-blurb">${esc(it.blurb)}</span>` : ""}
+            </a>`;
+          }).join("")}</div>
+        </section>`).join("")}`;
+    app.querySelector(".home-search").onsubmit = (ev) => {
+      ev.preventDefault();
+      const v = app.querySelector("#homeq").value.trim();
+      go(`#/explore${v ? `?q=${encodeURIComponent(v)}` : ""}`);
     };
+  }
+  const slugify = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+
+  // ------------------------------------------------------------ weapons (Endgame Analysis)
+  const TIER_ORDER = ["S", "A", "B", "C", "D", "E", "F"];
+  const tierRank = (t) => { const i = TIER_ORDER.indexOf((t || "").trim()); return i < 0 ? 99 : i; };
+  const normName = (t) => (t || "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  let perkIndex = null;
+  function perkLink(name) {
+    if (!perkIndex) {
+      perkIndex = new Map();
+      S.entries.filter((e) => ["weapon-trait", "origin-trait", "intrinsic", "weapon-mod"].includes(e.cat))
+        .forEach((e) => { if (!perkIndex.has(normName(e.name))) perkIndex.set(normName(e.name), e.id); });
+    }
+    const id = perkIndex.get(normName(name.replace(/^↑/, "")));
+    return id ? `<a class="perk" href="#/explore?id=${encodeURIComponent(id)}">${esc(name)}</a>` : `<span class="perk plain">${esc(name)}</span>`;
+  }
+
+  function readWeaponParams() {
+    const { q } = parseHash();
+    return { q: q.get("q") || "", type: q.get("type") || "", el: q.get("el") || "", tier: q.get("tier") || "", sort: q.get("sort") || "" };
+  }
+  function weaponHash(view, p) {
+    const q = new URLSearchParams(Object.entries(p).filter(([, v]) => v));
+    return `#/weapons${view === "exotic" ? "/exotic" : ""}${q.toString() ? "?" + q : ""}`;
+  }
+
+  async function renderWeapons(view) {
+    if (!S.weapons) {
+      app.innerHTML = `<p class="loading">Loading weapons…</p>`;
+      S.weapons = await (await fetch("data/weapons.json")).json();
+    }
+    const p = readWeaponParams();
+    const src = S.meta.sources.endgame;
+    const tabs = `<nav class="tabbar" aria-label="Weapon lists">
+      <a href="#/weapons" ${view !== "exotic" ? 'aria-current="page"' : ""}>Legendary (${S.weapons.weapons.length})</a>
+      <a href="#/weapons/exotic" ${view === "exotic" ? 'aria-current="page"' : ""}>Exotic ratings (${S.weapons.exotics.length})</a></nav>`;
+    const head = `<h1>Weapons</h1>
+      <p class="intro">Rankings and recommended rolls from <a href="https://docs.google.com/spreadsheets/d/${esc(src.id)}/edit" target="_blank" rel="noopener">Endgame Analysis</a> by ${esc(src.author)}, ranked for PvE endgame within each weapon type. Perk names link to their exact values in the Compendium.</p>${tabs}`;
+
+    if (view === "exotic") return renderExoticRatings(head, p);
+
+    const all = S.weapons.weapons;
+    const types = [...new Set(all.map((w) => w.type))];
+    const els = ["Kinetic", "Arc", "Solar", "Void", "Stasis", "Strand"];
+    const terms = p.q.toLowerCase().split(/\s+/).filter(Boolean);
+    let rows = all.filter((w) => (!p.type || w.type === p.type) && (!p.el || w.element === p.el) && (!p.tier || w.tier === p.tier) &&
+      (!terms.length || terms.every((t) => (w._hay ||= [w.name, w.variant, w.frame, w.source, ...(w.perk1 || []), ...(w.perk2 || []), ...(w.origin || []), w.notes].join(" ").toLowerCase()).includes(t))));
+    const sorters = {
+      tier: (a, b) => tierRank(a.tier) - tierRank(b.tier) || types.indexOf(a.type) - types.indexOf(b.type) || (+a.rank || 999) - (+b.rank || 999),
+      name: (a, b) => a.name.localeCompare(b.name),
+      season: (a, b) => (+b.season || 0) - (+a.season || 0) || tierRank(a.tier) - tierRank(b.tier),
+      "": (a, b) => types.indexOf(a.type) - types.indexOf(b.type) || (+a.rank || 999) - (+b.rank || 999),
+    };
+    rows = rows.slice().sort(sorters[p.sort] || sorters[""]);
+    const tierCounts = {};
+    all.forEach((w) => { if (!p.type || w.type === p.type) tierCounts[w.tier] = (tierCounts[w.tier] || 0) + 1; });
+
+    app.innerHTML = `${head}
+      <div class="wfilters">
+        <input class="input" type="search" placeholder="Search name, perk, source…" value="${esc(p.q)}" data-wq aria-label="Search weapons">
+        <select class="input" data-wtype aria-label="Weapon type"><option value="">All types</option>${types.map((t) => `<option ${t === p.type ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
+        <select class="input" data-wsort aria-label="Sort"><option value="">Sort: type, then rank</option><option value="tier" ${p.sort === "tier" ? "selected" : ""}>Sort: tier</option><option value="season" ${p.sort === "season" ? "selected" : ""}>Sort: newest</option><option value="name" ${p.sort === "name" ? "selected" : ""}>Sort: name</option></select>
+      </div>
+      <div class="wfilters">
+        <div class="chips">${els.map((el) => `<button type="button" class="chip el-${el}" aria-pressed="${p.el === el}" data-wel="${el}"><span class="dot"></span>${el}</button>`).join("")}</div>
+        <div class="chips">${TIER_ORDER.filter((t) => tierCounts[t]).map((t) => `<button type="button" class="chip" aria-pressed="${p.tier === t}" data-wtier="${t}">Tier ${t} <span class="muted">${tierCounts[t]}</span></button>`).join("")}</div>
+      </div>
+      <p class="muted" data-wcount>${rows.length} weapon${rows.length === 1 ? "" : "s"}</p>
+      <ol class="wlist">${rows.slice(0, 300).map(weaponCard).join("")}</ol>
+      ${rows.length > 300 ? `<p class="muted">Showing the first 300. Narrow it down with a type or search.</p>` : ""}
+      ${!rows.length ? `<p>No weapons match. Clear a filter or try a perk name.</p>` : ""}`;
+
+    let t;
+    app.querySelector("[data-wq]").oninput = (ev) => { clearTimeout(t); t = setTimeout(() => { go(weaponHash("", { ...readWeaponParams(), q: ev.target.value }), true); focusEnd("[data-wq]"); }, 200); };
+    app.querySelector("[data-wtype]").onchange = (ev) => go(weaponHash("", { ...readWeaponParams(), type: ev.target.value, tier: "" }), true);
+    app.querySelector("[data-wsort]").onchange = (ev) => go(weaponHash("", { ...readWeaponParams(), sort: ev.target.value }), true);
+    app.onclick = (ev) => {
+      const b = ev.target.closest("button");
+      if (!b) return;
+      const cur = readWeaponParams();
+      if (b.dataset.wel) go(weaponHash("", { ...cur, el: cur.el === b.dataset.wel ? "" : b.dataset.wel }), true);
+      if (b.dataset.wtier) go(weaponHash("", { ...cur, tier: cur.tier === b.dataset.wtier ? "" : b.dataset.wtier }), true);
+    };
+  }
+
+  function focusEnd(sel) {
+    const el = app.querySelector(sel);
+    if (el) { el.focus(); const v = el.value; el.value = ""; el.value = v; }
+  }
+
+  function weaponCard(w) {
+    const perkCol = (list) => (list || []).map(perkLink).join("");
+    const extra = [w.ammo && `Ammo gen ${w.ammo}`, w.shield && `Shield ${w.shield}`, w.charge && `Charge ${w.charge}`, w.impact && `Impact ${w.impact}`].filter(Boolean).join(" · ");
+    return `<li class="wcard el-${esc(w.element || "Kinetic")}">
+      <div class="wc-head">
+        <span class="tier tier-${esc(w.tier)}" title="Tier ${esc(w.tier)}">${esc(w.tier || "–")}</span>
+        <div class="wc-title"><span class="wc-name">${esc(w.name)}</span>${w.variant ? ` <span class="muted">${esc(w.variant)}</span>` : ""}
+          <div class="wc-meta"><span class="tag tag-el">${esc(w.element || "")}</span><span class="tag">${esc(w.type)}</span>${w.frame ? `<span class="tag">${esc(w.frame)}</span>` : ""}<span class="muted">#${esc(w.rank || "?")} in type · ${esc(w.source || "")}${w.season ? ` · S${esc(w.season)}` : ""}</span></div>
+        </div>
+      </div>
+      <div class="wc-rolls">
+        <div><span class="wc-lab">Column 3</span>${perkCol(w.perk1)}</div>
+        <div><span class="wc-lab">Column 4</span>${perkCol(w.perk2)}</div>
+        <div><span class="wc-lab">Origin</span>${perkCol(w.origin)}</div>
+        <div><span class="wc-lab">Barrel · Mag · MW</span><span class="perk plain">${esc([...(w.barrel || []), ...(w.mag || [])].join(", "))}${w.mw ? ` · ${esc(w.mw)} MW` : ""}</span></div>
+      </div>
+      ${w.notes ? `<p class="wc-notes">${esc(w.notes)}</p>` : ""}
+      ${extra ? `<p class="muted wc-extra">${esc(extra)}${w.enhanceable ? ` · Enhanceable: ${esc(w.enhanceable)}` : ""}</p>` : ""}
+    </li>`;
+  }
+
+  function renderExoticRatings(head, p) {
+    const byName = new Map(S.entries.filter((e) => e.cat === "exotic-weapon").map((e) => [normName(e.name.replace(/^the /i, "")), e]));
+    const rows = S.weapons.exotics.map((x) => [
+      x.tier || "", x.name, x.ammoType || "", (x.tags || []).join(", "),
+      RATING[x.roam] || x.roam || "", RATING[x.dps] || x.dps || "", RATING[x.challenge] || x.challenge || "", RATING[x.speed] || x.speed || "",
+      x.summary || "", x.usage || "",
+    ]);
+    const table = { columns: ["Tier", "Weapon", "Ammo", "Tags", "Roaming", "Boss DPS", "Challenge", "Speedrun", "What it does", "Verdict"], rows };
+    app.innerHTML = `${head}
+      <div class="table-tools"><input class="input" type="search" placeholder="Filter exotics…" data-tfilter aria-label="Filter exotics"><span class="muted" data-tcount></span>
+      <span class="legend"><span>Optimal / Viable / Situational / Wasted, per the sheet's key</span></span></div>
+      <div class="tablewrap" data-twrap></div>`;
+    mountTable(app.querySelector("[data-twrap]"), table, app.querySelector("[data-tfilter]"), app.querySelector("[data-tcount]"), {
+      sortDefault: 0,
+      cell: (v, i, row) => {
+        if (i === 0) return `<span class="tier tier-${esc(v)}">${esc(v)}</span>`;
+        if (i === 1) { const e = byName.get(normName(v.replace(/^the /i, ""))); return e ? `<a href="#/explore?id=${encodeURIComponent(e.id)}" style="color:var(--exotic)">${esc(v)}</a>` : esc(v); }
+        return esc(v);
+      },
+      tierCol: 0,
+    });
   }
 
   // ------------------------------------------------------------ about / credits
@@ -884,7 +1023,7 @@
         <ul>
           <li><a href="https://docs.google.com/spreadsheets/d/${esc(s.id)}/edit" target="_blank" rel="noopener">Original spreadsheet</a> (${s.tabs.length} tabs)</li>
           <li>${esc(s.contact)}</li>
-          ${s.support ? `<li><a href="${esc(s.support)}" target="_blank" rel="noopener">${k === "compendium" ? "Support the Compendium on Patreon" : "Follow their testing"}</a></li>` : ""}
+          ${s.support ? `<li><a href="${esc(s.support)}" target="_blank" rel="noopener">${k === "compendium" ? "Support the Compendium on Patreon" : "Follow their testing on X"}</a></li>` : ""}
         </ul>
       </article>`).join("");
     app.innerHTML = `
@@ -901,23 +1040,24 @@
   // ------------------------------------------------------------ router
   function route() {
     const { parts } = parseHash();
-    const page = parts[0] || "explore";
+    const page = parts[0] || "home";
     document.querySelectorAll("[data-nav]").forEach((a) => {
       if (a.dataset.nav === page) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
     });
     if (page !== "explore") app.onclick = null;
-    if (page === "build") renderBuild();
+    if (page === "explore") renderExplore();
+    else if (page === "build") renderBuild();
+    else if (page === "weapons") renderWeapons(parts[1]);
     else if (page === "boss") renderBoss(parts[1]);
-    else if (page === "sheets") renderSheets(parts[1], parts[2]);
     else if (page === "about") renderAbout();
-    else renderExplore();
-    if (page !== "explore") window.scrollTo(0, 0);
+    else renderHome();
+    if (page !== "explore" && page !== "weapons") window.scrollTo(0, 0);
   }
 
   function footer() {
     const s = S.meta.sources;
     document.getElementById("sitefoot").innerHTML =
-      `Data from the <a href="https://docs.google.com/spreadsheets/d/${s.compendium.id}/edit" target="_blank" rel="noopener">Destiny Data Compendium</a> and ${esc(s.bossdamage.author)}'s <a href="https://docs.google.com/spreadsheets/d/${s.bossdamage.id}/edit" target="_blank" rel="noopener">Boss Damage</a> and <a href="https://docs.google.com/spreadsheets/d/${s.bosshealth.id}/edit" target="_blank" rel="noopener">Boss Health</a> sheets. <a href="#/about">Full credits</a>. Unofficial; not affiliated with Bungie.`;
+      `Data from the <a href="https://docs.google.com/spreadsheets/d/${s.compendium.id}/edit" target="_blank" rel="noopener">Destiny Data Compendium</a> and ${esc(s.bossdamage.author)}'s <a href="https://docs.google.com/spreadsheets/d/${s.endgame?.id}/edit" target="_blank" rel="noopener">Endgame Analysis</a>, <a href="https://docs.google.com/spreadsheets/d/${s.bossdamage.id}/edit" target="_blank" rel="noopener">Boss Damage</a> and <a href="https://docs.google.com/spreadsheets/d/${s.bosshealth.id}/edit" target="_blank" rel="noopener">Boss Health</a> sheets. <a href="#/about">Full credits</a>. Unofficial; not affiliated with Bungie.`;
   }
 
   async function init() {
@@ -930,6 +1070,7 @@
       S.keywords = ent.keywords;
       S.shared = ent.prismaticShared || {};
       S.meta = meta;
+      S.weaponCount = meta.counts?.weapons;
       S.entries.forEach((e) => S.byId.set(e.id, e));
       S.keywords.forEach((k) => S.kwByName.set(k.name, k));
       // glossary entries (subclass "verbs") double as keyword definitions
