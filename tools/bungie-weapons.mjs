@@ -81,16 +81,28 @@ export function extractWeapons(m, version) {
   };
   const masterworkSet = (setHash) => {
     if (!setHash || plugSets[setHash]) return setHash;
-    // one option per stat: the highest-tier plug ("Masterworked: Range" = +10)
-    const best = new Map();
+    // one option per stat: the highest-tier plug ("Masterworked: Range" = +10).
+    // Fully masterworked plugs also list conditional bonuses to the other stats (+3 on adept/enhanced weapons,
+    // +1..+5 by weapon tier since Edge of Fate); I keep which stats those land on as `c`.
+    const best = new Map(), cond = new Map();
     (P[setHash]?.reusablePlugItems || []).forEach(({ plugItemHash: h }) => {
       const d = I[h];
       const cat = d?.plug?.plugCategoryIdentifier || "";
       if (!/masterworks\.stat\./.test(cat)) return;
-      const total = (d.investmentStats || []).filter((x) => !x.isConditionallyActive).reduce((n, x) => n + x.value, 0);
+      const main = (d.investmentStats || []).filter((x) => !x.isConditionallyActive);
+      const total = main.reduce((n, x) => n + x.value, 0);
       if (!best.has(cat) || total > best.get(cat).total) best.set(cat, { h, total });
+      const mainHashes = new Set(main.map((x) => x.statTypeHash));
+      const c = cond.get(cat) || cond.set(cat, new Set()).get(cat);
+      (d.investmentStats || []).filter((x) => x.isConditionallyActive && !mainHashes.has(x.statTypeHash)).forEach((x) => c.add(x.statTypeHash));
     });
-    plugSets[setHash] = [...best.values()].filter((x) => x.total > 0).map(({ h }) => { keepPerk(h); return [h]; });
+    plugSets[setHash] = [...best.entries()].filter(([, x]) => x.total > 0).map(([cat, { h }]) => {
+      keepPerk(h);
+      const main = new Set((I[h].investmentStats || []).filter((x) => !x.isConditionallyActive).map((x) => x.statTypeHash));
+      const other = [...cond.get(cat)].filter((sh) => !main.has(sh));
+      if (other.length) perks[h].c = other;
+      return [h];
+    });
     return setHash;
   };
   const all = [];
