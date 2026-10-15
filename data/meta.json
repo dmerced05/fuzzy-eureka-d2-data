@@ -1,0 +1,668 @@
+{
+ "fetched": "2026-10-15T10:11:05.674Z",
+ "sources": {
+  "compendium": {
+   "id": "1WaxvbLx7UoSZaBqdFr1u32F2uWVLo-CJunJB4nlGUE4",
+   "short": "Data Compendium",
+   "author": "Destiny Data Compendium",
+   "contact": "Discord: destinydatacompendium",
+   "support": "https://www.patreon.com/DataCompendium",
+   "blurb": "Numerical values of exotic perks, mods, abilities, and game mechanics, explained as precisely as possible.",
+   "title": "Destiny Data Compendium",
+   "tabs": [
+    {
+     "name": "Landing",
+     "gid": "1038486120",
+     "rows": 35
+    },
+    {
+     "name": "Weapon Perks",
+     "gid": "1662574278",
+     "rows": 420
+    },
+    {
+     "name": "Armor Perks",
+     "gid": "1287885342",
+     "rows": 115
+    },
+    {
+     "name": "Artifact Perks",
+     "gid": "473308249",
+     "rows": 174
+    },
+    {
+     "name": "Armor Mods",
+     "gid": "1934379638",
+     "rows": 36
+    },
+    {
+     "name": "Arc",
+     "gid": "618967225",
+     "rows": 137
+    },
+    {
+     "name": "Solar",
+     "gid": "1186062409",
+     "rows": 150
+    },
+    {
+     "name": "Void",
+     "gid": "1907852650",
+     "rows": 137
+    },
+    {
+     "name": "Stasis",
+     "gid": "1088259962",
+     "rows": 110
+    },
+    {
+     "name": "Strand",
+     "gid": "1870531554",
+     "rows": 110
+    },
+    {
+     "name": "Prismatic",
+     "gid": "1918152785",
+     "rows": 103
+    },
+    {
+     "name": "Exotic Class",
+     "gid": "20898389",
+     "rows": 26
+    },
+    {
+     "name": "Class Abilities",
+     "gid": "527596209",
+     "rows": 28
+    },
+    {
+     "name": "Exotic Weapons",
+     "gid": "441434520",
+     "rows": 154
+    },
+    {
+     "name": "Exotic Armors",
+     "gid": "1500097863",
+     "rows": 141
+    },
+    {
+     "name": "Game Mechanics",
+     "gid": "1800463143",
+     "rows": 294
+    },
+    {
+     "name": "OLD Episodic Artifact Perks",
+     "gid": "715236319",
+     "rows": 120
+    },
+    {
+     "name": "OLD Seasonal Artifact Perks",
+     "gid": "70425171",
+     "rows": 88
+    },
+    {
+     "name": "OLD Nether Mechanics",
+     "gid": "333521426",
+     "rows": 62
+    },
+    {
+     "name": "OLD Armor Mods",
+     "gid": "1925335732",
+     "rows": 55
+    },
+    {
+     "name": "OLD Game Mechanics",
+     "gid": "135237481",
+     "rows": 242
+    },
+    {
+     "name": "OLD Exotic Armors",
+     "gid": "2137280685",
+     "rows": 138
+    }
+   ]
+  },
+  "bossdamage": {
+   "id": "1_5wtBjRYHHxuF4oJKDb_iOGZs-wTkzB6RYbnyNLbuz4",
+   "short": "Boss Damage",
+   "author": "TheAegisRelic",
+   "contact": "Discord: @theaegisrelic",
+   "support": "https://x.com/TheAegisRelic",
+   "blurb": "Boss damage testing: base values for weapons and abilities, sustained and swap DPS, boss considerations.",
+   "title": "Destiny 2: Boss Damage",
+   "tabs": [
+    {
+     "name": "Home",
+     "gid": "1313551887",
+     "rows": 12
+    },
+    {
+     "name": "Changelog",
+     "gid": "1268483240",
+     "rows": 212
+    },
+    {
+     "name": "Weapons",
+     "gid": "2139128689",
+     "rows": 421
+    },
+    {
+     "name": "Abilties",
+     "gid": "1439633538",
+     "rows": 244
+    },
+    {
+     "name": "Scaling (old)",
+     "gid": "2104454056",
+     "rows": 59
+    },
+    {
+     "name": "Fireteam (S29)",
+     "gid": "1193280735",
+     "rows": 77
+    },
+    {
+     "name": "Graphing (S29)",
+     "gid": "1791137823",
+     "rows": 659
+    },
+    {
+     "name": "Sustained",
+     "gid": "1455724279",
+     "rows": 263
+    },
+    {
+     "name": "Swap",
+     "gid": "544204052",
+     "rows": 206
+    },
+    {
+     "name": "Bosses",
+     "gid": "1346678363",
+     "rows": 64
+    },
+    {
+     "name": "Pack Hunter",
+     "gid": "776354372",
+     "rows": 9
+    },
+    {
+     "name": "Bolt Charge",
+     "gid": "402419508",
+     "rows": 26
+    },
+    {
+     "name": "Historical",
+     "gid": "277863849",
+     "rows": 22
+    },
+    {
+     "name": "Testing",
+     "gid": "247390216",
+     "rows": 759
+    }
+   ]
+  },
+  "bosshealth": {
+   "id": "1bNyhSpJoFOV_yhGL45eFVs9MEzheqJ6Mk0cGyrwPufc",
+   "short": "Boss Health",
+   "author": "TheAegisRelic",
+   "contact": "Discord: @theaegisrelic",
+   "support": "https://x.com/TheAegisRelic",
+   "blurb": "Boss health values (Monument of Triumph) at each power delta, with per-encounter breakdowns.",
+   "title": "Destiny 2: Boss Health (Monument of Triumph)",
+   "tabs": [
+    {
+     "name": "Comparison",
+     "gid": "1436974827",
+     "rows": 63
+    },
+    {
+     "name": "LW - Kalli (+0)",
+     "gid": "1524497943",
+     "rows": 9
+    },
+    {
+     "name": "LW - Shuro Chi (+0)",
+     "gid": "1764102224",
+     "rows": 8
+    },
+    {
+     "name": "LW - Morgeth (+0)",
+     "gid": "924060833",
+     "rows": 9
+    },
+    {
+     "name": "LW - Riven (arm, +0)",
+     "gid": "2076279597",
+     "rows": 13
+    },
+    {
+     "name": "GoS - Consecrated (+0)",
+     "gid": "260053263",
+     "rows": 13
+    },
+    {
+     "name": "GoS - Sanctified (+0)",
+     "gid": "604467934",
+     "rows": 10
+    },
+    {
+     "name": "DSC - Crypt Security (+0)",
+     "gid": "2020849838",
+     "rows": 17
+    },
+    {
+     "name": "DSC - Atraks (body, +0)",
+     "gid": "850914185",
+     "rows": 9
+    },
+    {
+     "name": "DSC - Taniks (+0)",
+     "gid": "1214068976",
+     "rows": 18
+    },
+    {
+     "name": "VoG - Templar (-30)",
+     "gid": "982080494",
+     "rows": 18
+    },
+    {
+     "name": "VoG - Templar (+0)",
+     "gid": "2091531334",
+     "rows": 14
+    },
+    {
+     "name": "VoG - Atheon (+0)",
+     "gid": "1762957232",
+     "rows": 13
+    },
+    {
+     "name": "VotD - Caretaker (+0)",
+     "gid": "1634577912",
+     "rows": 16
+    },
+    {
+     "name": "VotD - Caretaker (post-threshold, +0)",
+     "gid": "1537789085",
+     "rows": 9
+    },
+    {
+     "name": "VotD - Rhulk (-30)",
+     "gid": "66577826",
+     "rows": 34
+    },
+    {
+     "name": "VotD - Rhulk (+0)",
+     "gid": "1326803941",
+     "rows": 16
+    },
+    {
+     "name": "KF - Warpriest (+0)",
+     "gid": "1953933476",
+     "rows": 22
+    },
+    {
+     "name": "KF - Golgoroth (-30)",
+     "gid": "1060457090",
+     "rows": 16
+    },
+    {
+     "name": "KF - Golgoroth (+0)",
+     "gid": "1695158028",
+     "rows": 9
+    },
+    {
+     "name": "KF - Daughters (+0)",
+     "gid": "2139076876",
+     "rows": 35
+    },
+    {
+     "name": "KF - Oryx (-30)",
+     "gid": "913437839",
+     "rows": 16
+    },
+    {
+     "name": "KF - Oryx (+0)",
+     "gid": "421378891",
+     "rows": 18
+    },
+    {
+     "name": "RoN - Explicator (+0)",
+     "gid": "1267587411",
+     "rows": 15
+    },
+    {
+     "name": "RoN - Nezarec (-30)",
+     "gid": "892439130",
+     "rows": 30
+    },
+    {
+     "name": "RoN - Nezarec (+0)",
+     "gid": "981102909",
+     "rows": 13
+    },
+    {
+     "name": "CE - Ir Yut (+0)",
+     "gid": "1107468373",
+     "rows": 16
+    },
+    {
+     "name": "CE - Crota (+0)",
+     "gid": "689038223",
+     "rows": 13
+    },
+    {
+     "name": "SE - Herald (+0)",
+     "gid": "850876680",
+     "rows": 12
+    },
+    {
+     "name": "SE - Witness (+0)",
+     "gid": "1833949506",
+     "rows": 26
+    },
+    {
+     "name": "DP - Agraios (-10)",
+     "gid": "1742483654",
+     "rows": 20
+    },
+    {
+     "name": "DP - Epoptes (-10)",
+     "gid": "1711917115",
+     "rows": 35
+    },
+    {
+     "name": "DP - Iatros (-10)",
+     "gid": "2032277588",
+     "rows": 16
+    },
+    {
+     "name": "DP - Koregos (-10)",
+     "gid": "187533897",
+     "rows": 20
+    },
+    {
+     "name": "DP - Agraios (Contest)",
+     "gid": "533528582",
+     "rows": 11
+    },
+    {
+     "name": "DP - Iatros (Contest)",
+     "gid": "421428335",
+     "rows": 12
+    },
+    {
+     "name": "DP - Koregos (Contest)",
+     "gid": "1794780815",
+     "rows": 13
+    },
+    {
+     "name": "DP - Agraios/Epic (Contest)",
+     "gid": "1940455555",
+     "rows": 18
+    },
+    {
+     "name": "DP - Epoptes/Epic (Contest)",
+     "gid": "2113206680",
+     "rows": 36
+    },
+    {
+     "name": "DP - Iatros/Epic (Contest)",
+     "gid": "910694949",
+     "rows": 24
+    },
+    {
+     "name": "DP - Koregos/Epic (Contest)",
+     "gid": "458580716",
+     "rows": 13
+    },
+    {
+     "name": "DP - Agraios/Epic (-20)",
+     "gid": "1437415431",
+     "rows": 23
+    },
+    {
+     "name": "DP - Epoptes/Epic (-20)",
+     "gid": "1936102523",
+     "rows": 18
+    },
+    {
+     "name": "DP - Iatros/Epic (-20)",
+     "gid": "1539420369",
+     "rows": 21
+    },
+    {
+     "name": "DP - Koregos/Epic (-20)",
+     "gid": "593238881",
+     "rows": 18
+    },
+    {
+     "name": "Pantheon - Argos (+0)",
+     "gid": "52139631",
+     "rows": 17
+    },
+    {
+     "name": "Pantheon - Argos (-30)",
+     "gid": "257789265",
+     "rows": 16
+    },
+    {
+     "name": "Pantheon - Warpriest (+0)",
+     "gid": "927953422",
+     "rows": 26
+    },
+    {
+     "name": "Pantheon - Warpriest (-30)",
+     "gid": "1211496285",
+     "rows": 26
+    },
+    {
+     "name": "Pantheon - Gahlran (+0)",
+     "gid": "1271795598",
+     "rows": 22
+    },
+    {
+     "name": "Pantheon - Gahlran (-30)",
+     "gid": "1214312343",
+     "rows": 23
+    },
+    {
+     "name": "Pantheon - Consecrated (+0)",
+     "gid": "791727391",
+     "rows": 16
+    },
+    {
+     "name": "Pantheon - Consecrated (-30)",
+     "gid": "461133344",
+     "rows": 13
+    },
+    {
+     "name": "Pantheon - Calus (+0)",
+     "gid": "1683585933",
+     "rows": 17
+    },
+    {
+     "name": "Pantheon - Calus (-30)",
+     "gid": "2117208791",
+     "rows": 19
+    },
+    {
+     "name": "Pantheon - Morgeth (+0)",
+     "gid": "2074222766",
+     "rows": 13
+    },
+    {
+     "name": "Pantheon - Morgeth (-30)",
+     "gid": "334281272",
+     "rows": 25
+    },
+    {
+     "name": "Pantheon - Insurrection (+0)",
+     "gid": "482644041",
+     "rows": 17
+    },
+    {
+     "name": "Pantheon - Insurrection (-30)",
+     "gid": "1156953644",
+     "rows": 15
+    },
+    {
+     "name": "TST - Vorgeth (+0)",
+     "gid": "101240049",
+     "rows": 8
+    },
+    {
+     "name": "TST - Dul Incaru (+0)",
+     "gid": "1402176716",
+     "rows": 8
+    },
+    {
+     "name": "PoH - Zulmak (+0)",
+     "gid": "652808875",
+     "rows": 17
+    },
+    {
+     "name": "Proph - Phalanx (+0)",
+     "gid": "84654822",
+     "rows": 13
+    },
+    {
+     "name": "Proph - Kell (+0)",
+     "gid": "1045753121",
+     "rows": 16
+    },
+    {
+     "name": "GoA - Phry'zhia (-30)",
+     "gid": "957496285",
+     "rows": 18
+    },
+    {
+     "name": "GoA - Phry'zhia (+0)",
+     "gid": "1933605307",
+     "rows": 13
+    },
+    {
+     "name": "GoA - Avarokk (+0)",
+     "gid": "584857443",
+     "rows": 14
+    },
+    {
+     "name": "Duality - Gahlran (+0)",
+     "gid": "139271698",
+     "rows": 15
+    },
+    {
+     "name": "Duality - Vault (+0)",
+     "gid": "1287659800",
+     "rows": 6
+    },
+    {
+     "name": "Duality - Caiatl (+0)",
+     "gid": "697218823",
+     "rows": 17
+    },
+    {
+     "name": "SotW - Akelous (+0)",
+     "gid": "735276573",
+     "rows": 13
+    },
+    {
+     "name": "SotW - Persys (+0)",
+     "gid": "228999344",
+     "rows": 11
+    },
+    {
+     "name": "GotD - Ecthar (+0)",
+     "gid": "1978407802",
+     "rows": 14
+    },
+    {
+     "name": "GotD - Simmumah (+0)",
+     "gid": "1836900004",
+     "rows": 12
+    },
+    {
+     "name": "WR - Rathil (-30)",
+     "gid": "1158899871",
+     "rows": 14
+    },
+    {
+     "name": "WR - Rathil (+0)",
+     "gid": "1527305276",
+     "rows": 11
+    },
+    {
+     "name": "WR - Locus (+0)",
+     "gid": "843900973",
+     "rows": 16
+    },
+    {
+     "name": "WR - Hefnd (+0)",
+     "gid": "97193832",
+     "rows": 10
+    },
+    {
+     "name": "VH - Raneiks (+0)",
+     "gid": "1142608071",
+     "rows": 19
+    },
+    {
+     "name": "VH - Puppeteer (+0)",
+     "gid": "1761160845",
+     "rows": 17
+    },
+    {
+     "name": "SD - Lockset (+0)",
+     "gid": "102700582",
+     "rows": 17
+    },
+    {
+     "name": "SD - Kerrev (+0)",
+     "gid": "74283133",
+     "rows": 17
+    },
+    {
+     "name": "EQ - Harrow (-5)",
+     "gid": "265123977",
+     "rows": 12
+    },
+    {
+     "name": "EQ - Harrow (Contest)",
+     "gid": "1065709796",
+     "rows": 11
+    },
+    {
+     "name": "EQ - Sere (-5)",
+     "gid": "1168021257",
+     "rows": 23
+    },
+    {
+     "name": "EQ - Sere (-40)",
+     "gid": "2619166",
+     "rows": 20
+    },
+    {
+     "name": "EQ - Sere (Contest)",
+     "gid": "1792359655",
+     "rows": 26
+    },
+    {
+     "name": "TWQ - Savathun (no final)",
+     "gid": "111916038",
+     "rows": 11
+    },
+    {
+     "name": "SR - Carl (+0)",
+     "gid": "2047556310",
+     "rows": 40
+    },
+    {
+     "name": "SR - Fanatic's Chosen (+0)",
+     "gid": "1868476353",
+     "rows": 36
+    }
+   ]
+  }
+ }
+}
