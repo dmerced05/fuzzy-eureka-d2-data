@@ -22,5 +22,13 @@
     "contact": "Discord: @theaegisrelic",
     "support": "https://x.com/TheAegisRelic",
     "blurb": "Boss health values (Monument of Triumph) at each power delta, with per-encounter breakdowns."
+  },
+  "endgame": {
+    "id": "1JM-0SlxVDAi-C6rGVlLxa-J1WGewEeL8Qvq4htWZHhY",
+    "short": "Endgame Analysis",
+    "author": "TheAegisRelic",
+    "contact": "Discord: @theaegisrelic",
+    "support": "https://x.com/TheAegisRelic",
+    "blurb": "Every legendary weapon ranked by type with its best perks and origin traits, plus ratings for exotics, perks, fragments, aspects, set bonuses and artifact mods."
   }
 }

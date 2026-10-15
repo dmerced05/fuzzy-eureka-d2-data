@@ -13,6 +13,7 @@ to fix; the raw sheet viewer keeps working regardless.
 """
 import json
 import re
+import unicodedata
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -29,60 +30,63 @@ CLASS_ALIASES = {"hunter": "Hunter", "hunters": "Hunter", "titan": "Titan", "tit
 # I guess whether it PRODUCES them (grants, inflicts, creates...) or USES them
 # (while X, on X kill, against X'd targets). Group/element drive the colors.
 KEYWORDS = [
-    # name, element/group, regex
+    # name, element/group, regex (kept JS-compatible: the site reuses these to link words)
     ("Jolt", "Arc", r"jolt(?:ed|s|ing)?"),
     ("Blind", "Arc", r"blind(?:ed|s|ing)?"),
-    ("Amplified", "Arc", r"amplified"),
+    ("Amplified", "Arc", r"amplif(?:ied|y|ying|ies)"),
     ("Bolt Charge", "Arc", r"bolt charges?"),
     ("Ionic Trace", "Arc", r"ionic traces?"),
     ("Scorch", "Solar", r"scorch(?:ed|es|ing)?"),
-    ("Ignition", "Solar", r"ignit(?:ion|ions|e|es|ed)"),
+    ("Ignition", "Solar", r"ignit(?:ion|ions|e|es|ed|ing)"),
     ("Radiant", "Solar", r"radiant"),
     ("Restoration", "Solar", r"restoration"),
     ("Cure", "Solar", r"cure[ds]?"),
     ("Firesprite", "Solar", r"firesprites?"),
     ("Sunspot", "Solar", r"sunspots?"),
-    ("Volatile", "Void", r"volatile"),
+    ("Volatile", "Void", r"volatile(?! shields trade)"),
     ("Weaken", "Void", r"weaken(?:ed|s|ing)?"),
     ("Suppression", "Void", r"suppress(?:ed|es|ion|ing)?"),
     ("Devour", "Void", r"devour(?:ed|ing)?"),
     ("Invisibility", "Void", r"invisib(?:ility|le)"),
-    ("Overshield", "Void", r"(?:void )?overshields?"),
+    ("Void Overshield", "Void", r"void overshields?"),
     ("Void Breach", "Void", r"void breach(?:es)?"),
-    ("Slow", "Stasis", r"slow(?:ed|s)?(?! down)"),
-    ("Freeze", "Stasis", r"freez(?:e|es|ing)|frozen"),
+    ("Slow", "Stasis", r"slow(?:ed|s)?(?=\s+(?:stacks?|for|enemies|targets|combatants)\b)|slowed|slows|slow stacks?"
+                       r"|(?:inflicts?|inflicting|applies|apply|applying) slow|x\d+(?:\+\d+)? slow"),
+    ("Freeze", "Stasis", r"freez(?:e|es|ing)(?! the timer)|frozen"),
     ("Shatter", "Stasis", r"shatter(?:ed|s|ing)?"),
-    ("Stasis Crystal", "Stasis", r"(?:stasis )?crystals?"),
+    ("Stasis Crystal", "Stasis", r"stasis crystals?|(?:shatter(?:s|ing|ed)?|destroy(?:s|ing|ed)?|creat(?:e|es|ing)|form(?:s|ing)?) (?:a |the |nearby |\d+ )?(?:stasis )?crystals?|crystal(?:s)? (?:shatter|form|explo)"),
     ("Frost Armor", "Stasis", r"frost armou?r"),
     ("Stasis Shard", "Stasis", r"stasis shards?"),
-    ("Sever", "Strand", r"sever(?:ed|s)?"),
-    ("Suspend", "Strand", r"suspen(?:d|ds|ded|sion)"),
+    ("Sever", "Strand", r"sever(?:ed|s|ing)?"),
+    ("Suspend", "Strand", r"suspen(?:d|ds|ded|ding|sion)"),
     ("Unravel", "Strand", r"unravel(?:ing|ed|s)?"),
     ("Tangle", "Strand", r"tangles?"),
     ("Woven Mail", "Strand", r"woven mail"),
     ("Threadling", "Strand", r"threadlings?"),
     ("Transcendence", "Prismatic", r"transcend(?:ence|ent)"),
-    ("Orb of Power", "General", r"orbs? of power"),
+    ("Orb of Power", "General", r"orbs? of (?:power|light)|super orbs?|orb pickups?"),
     ("Armor Charge", "General", r"armou?r charges?"),
     ("Elemental Pickup", "General", r"elemental pickups?"),
     ("Elemental Buff", "General", r"elemental buffs?"),
-    ("Elemental Debuff", "General", r"elemental debuffs?|elementally[- ]debuffed"),
+    ("Elemental Debuff", "General", r"elemental debuffs?|elementally[- ]debuffed|elemental[- ]debuffed"),
     ("Finisher", "General", r"finishers?"),
-    ("Precision", "General", r"precision (?:hits?|kills?|damage)"),
-    ("Champion", "General", r"champions?"),
-    ("Healing", "General", r"restores? \d+\s*(?:\[\d+\]\s*)?(?:hp|health)|health regeneration"),
-    ("Damage Resist", "General", r"damage resist(?:ance)?"),
-    ("Super Energy", "Ability", r"super (?:ability )?energy"),
+    ("Precision", "General", r"precision (?:hits?|kills?|damage|shots?)|crits?|crit (?:hits?|kills?)"),
+    ("Champion", "General", r"champions?(?! of the darkness)"),
+    ("Overshield", "General", r"(?<!void )overshields?"),
+    ("Healing", "General", r"restores? \d+\s*(?:\[\d+\]\s*)?(?:hp|health)|health regen(?:eration)?|heals?"),
+    ("Damage Resist", "General", r"damage resist(?:ance)?|resist x\d"),
+    ("Super", "Ability", r"super (?:kills?|cast|casts|casting|damage|hits?|usage|end)|on super"),
+    ("Super Energy", "Ability", r"super (?:ability )?energy|\d+(?:\.\d+)?\??% super"),
     ("Grenade", "Ability", r"grenades?(?! launchers?)"),
     ("Melee", "Ability", r"(?:powered )?melees?"),
-    ("Class Ability", "Ability", r"class abilit(?:y|ies)|barricade|rift|dodge|thruster"),
+    ("Class Ability", "Ability", r"class abilit(?:y|ies)|class (?:usage|energy)|barricades?|rifts?|dodges?|thruster"),
     ("Auto Rifle", "Weapon", r"auto rifles?"),
     ("Bow", "Weapon", r"bows?"),
     ("Fusion Rifle", "Weapon", r"(?<!linear )fusion rifles?"),
     ("Glaive", "Weapon", r"glaives?"),
     ("Grenade Launcher", "Weapon", r"grenade launchers?"),
     ("Hand Cannon", "Weapon", r"hand cannons?"),
-    ("Linear Fusion Rifle", "Weapon", r"linear fusion rifles?"),
+    ("Linear Fusion Rifle", "Weapon", r"linear fusion rifles?|lfrs?"),
     ("Machine Gun", "Weapon", r"machine guns?"),
     ("Pulse Rifle", "Weapon", r"pulse rifles?"),
     ("Rocket Launcher", "Weapon", r"rocket launchers?"),
@@ -98,13 +102,29 @@ KW_RE = [(name, grp, re.compile(r"\b(?:" + rx + r")\b", re.I)) for name, grp, rx
 
 PRODUCE_RE = re.compile(
     r"\b(grant|grants|granting|granted|inflict|inflicts|inflicting|create|creates|creating|spawn|spawns|spawning|"
-    r"appl(?:y|ies|ying)|become|becomes|cause|causes|release|releases|summon|summons|generate|generates|"
+    r"inflicted|applied|created|spawned|appl(?:y|ies|ying)|become|becomes|cause|causes|release|releases|summon|summons|generate|generates|"
     r"trigger|triggers|make|makes|gain|gains|refund|refunds|convert|converts|turns? into|"
     r"jolts|scorches|blinds|weakens|suppresses|slows|freezes|severs|suspends|unravels|ignites|restores|"
     r"drops?|overflows?|refills?|regeneration rate|ability energy)\b", re.I)
 USE_RE = re.compile(
     r"\b(while|against|on|upon|after|killing|kills?|defeating|damaging|hitting|picking up|pickup|"
     r"affected by|standing in|inside|within|consum(?:e|es|ing)|when|whenever|if|during|with)\b", re.I)
+
+
+CLAUSE_BREAK = re.compile(r"\b(?:that|which|who|when|while|if|against|on|upon|after|until|unless)\b|[,;.(]", re.I)
+USE_ONLY = {"Precision", "Champion", "Finisher", "Super"}  # nothing "makes" these; buffs to them are mentions
+
+
+def produced_here(before):
+    """True if a granting verb governs this word: same clause, close by."""
+    window = before[-60:]
+    last = None
+    for m in PRODUCE_RE.finditer(window):
+        last = m
+    if not last:
+        return False
+    between = window[last.end():]
+    return not CLAUSE_BREAK.search(between)
 
 
 def classify_keywords(text):
@@ -133,17 +153,25 @@ def classify_keywords(text):
                     # "Upon X:\nVolatile Rounds for 9 seconds." -> the effect is granted
                     roles.add("produce")
                     continue
+                # "Consumes x3 Armor Charge", "Armor Charges consumed" => uses
+                if re.search(r"consum\w*\s+(?:\S+\s+){0,2}$", before) or re.match(r"\s*consumed", after):
+                    roles.add("use")
+                    continue
                 # "...Debuffed Enemies", "Jolted targets", "X Kill" => uses
                 if re.match(r"[\w\- ]{0,3}(?:enem|target|combatant|kill|hit|damage|final blow)", after, re.I) and \
                         not PRODUCE_RE.search(before[-40:]):
                     roles.add("use")
-                elif PRODUCE_RE.search(before[-60:]):
+                elif produced_here(before):
                     roles.add("produce")
                 elif USE_RE.search(before[-30:]):
                     roles.add("use")
                 else:
                     roles.add("mention")
         prev_condition = is_condition and not is_header
+    for k in USE_ONLY & found.keys():
+        if "produce" in found[k]:
+            found[k].discard("produce")
+            found[k].add("mention")
     return found
 
 
@@ -576,9 +604,156 @@ def compact_sheet(sh, sheet_id):
     return {"name": sh["name"], "gid": sh["gid"], "grid": new_grid, "merges": merges, "links": links}
 
 
+# ---------------------------------------------------------------- endgame analysis
+WEAPON_TABS = {
+    "Autos": "Auto Rifle", "Bows": "Bow", "HCs": "Hand Cannon", "Pulses": "Pulse Rifle", "Scouts": "Scout Rifle",
+    "Sidearms": "Sidearm", "SMGs": "Submachine Gun", "BGLs": "Breech Grenade Launcher", "Fusions": "Fusion Rifle",
+    "Glaives": "Glaive", "Shotguns": "Shotgun", "Snipers": "Sniper Rifle", "Rocket Sidearms": "Rocket Sidearm",
+    "Traces": "Trace Rifle", "HGLs": "Heavy Grenade Launcher", "LFRs": "Linear Fusion Rifle", "LMGs": "Machine Gun",
+    "Rockets": "Rocket Launcher", "Swords": "Sword", "Other": "Other",
+}
+
+
+def header_cols(grid, row=1):
+    cols = {}
+    for c, name in enumerate(grid[row] if row < len(grid) else []):
+        name = name.replace("\n", " ").strip()
+        if name:
+            cols.setdefault(name, []).append(c)
+    return cols
+
+
+def lines(text):
+    return [l.strip() for l in (text or "").split("\n") if l.strip()]
+
+
+def build_weapons(eg):
+    weapons, exotics = [], {}
+    for sh in eg["sheets"]:
+        grid = sh["grid"]
+        if sh["name"] in WEAPON_TABS:
+            cols = header_cols(grid)
+            get = lambda r, name, idx=0: cell(grid, r, cols[name][idx]) if name in cols and len(cols[name]) > idx else ""
+            for r in range(2, len(grid)):
+                name_lines = lines(get(r, "Name"))
+                if not name_lines:
+                    continue
+                w = {
+                    "name": name_lines[0], "variant": " ".join(name_lines[1:]),
+                    "type": WEAPON_TABS[sh["name"]], "tab": sh["name"],
+                    "season": get(r, "Season"), "element": get(r, "Energy"), "frame": get(r, "Frame"),
+                    "source": get(r, "Source"),
+                    "enhanceable": get(r, "⬆️"), "barrel": lines(get(r, "Barrel")), "mag": lines(get(r, "Mag")),
+                    "mw": get(r, "MW"), "perk1": lines(get(r, "Perk 1")), "perk2": lines(get(r, "Perk 2")),
+                    "origin": lines(get(r, "Origin Trait")), "notes": clean(get(r, "Notes")),
+                    "rank": get(r, "#"), "tier": get(r, "Tier"),
+                }
+                for extra in ("Ammo", "Shield", "Charge", "Impact"):
+                    if get(r, extra):
+                        w[extra.lower()] = get(r, extra)
+                w["id"] = slug(f"{w['tab']}-{w['name']}-{w['variant']}")
+                weapons.append({k: v for k, v in w.items() if v not in ("", [], None)})
+        elif sh["name"] == "Exotic Weapons":
+            cols = header_cols(grid)
+            get = lambda r, name: cell(grid, r, cols[name][0]) if name in cols else ""
+            for r in range(2, len(grid)):
+                name = first_line(get(r, "Name"))
+                if not name:
+                    continue
+                exotics[norm(name)] = {k: v for k, v in {
+                    "name": name, "season": get(r, "Season"), "ammoType": get(r, "Type"),
+                    "tags": lines(get(r, "Tags")), "summary": clean(get(r, "Description")),
+                    "roam": get(r, "Roam"), "dps": get(r, "DPS"), "challenge": get(r, "Chall"), "speed": get(r, "Speed"),
+                    "usage": clean(get(r, "Usage")), "tier": get(r, "Tier"),
+                }.items() if v not in ("", [])}
+    return weapons, exotics
+
+
+FRAG_PREFIX = re.compile(r"^(?:spark|ember|echo|whisper|thread|facet) of (?:the )?", re.I)
+
+
+def norm(name):
+    name = unicodedata.normalize("NFKD", first_line(name)).encode("ascii", "ignore").decode()
+    name = re.sub(r"^the ", "", FRAG_PREFIX.sub("", name), flags=re.I)
+    return re.sub(r"[^a-z0-9]+", "", name.lower())
+
+
+def endgame_notes(eg):
+    """{(kind, normalized name): note} from the analysis tabs that have Trigger/Effect columns."""
+    spec = {
+        "Perks": ("perk", "Name"), "Origin Traits": ("origin", "Name"), "Set Bonuses": ("set", "Bonus"),
+        "Artifact Mods": ("artifact", "Mod"), "Fragments": ("fragment", "Name"), "Aspects": ("aspect", "Name"),
+    }
+    notes = {}
+    for sh in eg["sheets"]:
+        if sh["name"] not in spec:
+            continue
+        kind, name_col = spec[sh["name"]]
+        grid = sh["grid"]
+        cols = header_cols(grid)
+        get = lambda r, name, idx=0: cell(grid, r, cols[name][idx]) if name in cols and len(cols[name]) > idx else ""
+        for r in range(2, len(grid)):
+            name = first_line(get(r, name_col))
+            if not name:
+                continue
+            note = {
+                "tier": get(r, "Tier", len(cols.get("Tier", [0])) - 1),
+                "tags": lines(get(r, "Tags")), "trigger": clean(get(r, "Trigger")), "effect": clean(get(r, "Effect")),
+                "analysis": clean(get(r, "Description") or get(r, "Usage")),
+                "usage": clean(get(r, "Usage")) if get(r, "Description") else "",
+                "subclass": get(r, "Subclass"), "set": first_line(get(r, "Set")), "pieces": get(r, "Pcs"),
+                "artifact": first_line(get(r, "Artifact")), "notable": clean(get(r, "Notable Weapons")),
+                "tab": sh["name"],
+            }
+            notes.setdefault((kind, norm(name)), []).append({k: v for k, v in note.items() if v not in ("", [])})
+    return notes
+
+
+def roles_from_endgame(trigger, effect):
+    roles = {}
+    for text, role in ((trigger, "use"), (effect, "produce")):
+        for name, grp, rx in KW_RE:
+            for m in rx.finditer(text or ""):
+                r = "use" if role == "produce" and re.search(r"consum\w*\s*(?:\S+\s*){0,3}$", text[: m.start()]) else role
+                roles.setdefault(name, set()).add("mention" if r == "produce" and name in USE_ONLY else r)
+    return roles
+
+
+def attach_endgame(entries, notes, exotics):
+    kind_of = {"weapon-trait": "perk", "intrinsic": "perk", "weapon-mod": "perk", "origin-trait": "origin",
+               "armor-set": "set", "artifact-perk": "artifact", "fragment": "fragment", "aspect": "aspect"}
+    matched = 0
+    for e in entries:
+        if e["cat"] == "exotic-weapon":
+            ex = exotics.get(norm(e["name"]))
+            if ex:
+                e["egExotic"] = ex
+                matched += 1
+            continue
+        kind = kind_of.get(e["cat"])
+        if not kind:
+            continue
+        cands = []
+        if kind == "set":
+            for p in e.get("pieces", []):
+                cands += notes.get(("set", norm(p["name"])), [])
+        else:
+            cands = notes.get((kind, norm(e["name"])), [])
+            if kind in ("fragment", "aspect") and e.get("el"):
+                same = [c for c in cands if c.get("subclass", "").lower() == e["el"].lower()]
+                cands = same or ([] if len(cands) > 1 else cands)
+        if cands:
+            e["eg"] = cands
+            matched += 1
+    return matched
+
+
 def main():
     raw_all = json.loads((DATA / "raw.json").read_text())
     raw = raw_all["sources"]
+    extra = DATA / "raw-endgame.json"
+    if "endgame" not in raw and extra.exists():
+        raw["endgame"] = json.loads(extra.read_text())["sources"]["endgame"]
     out = Collector()
     shared_by_class = {}
     for sh in raw["compendium"]["sheets"]:
@@ -589,21 +764,35 @@ def main():
         elif sh["name"] in PARSERS:
             PARSERS[sh["name"]](sh, out)
 
+    weapons, exotic_ratings, notes = [], {}, {}
+    if "endgame" in raw:
+        weapons, exotic_ratings = build_weapons(raw["endgame"])
+        notes = endgame_notes(raw["endgame"])
+        print("endgame matches:", attach_endgame(out.entries, notes, exotic_ratings))
+
     for e in out.entries:
         text = e["desc"] + "\n" + "\n".join(p["desc"] for p in e.get("pieces", []))
-        roles = classify_keywords(text)
-        # an entry's own name counts as producing that keyword (e.g. "Jolt" glossary)
-        for name, grp, rx in KW_RE:
-            if rx.fullmatch(e["name"].strip()):
-                roles.setdefault(name, set()).add("produce")
+        text_roles = classify_keywords(text)
+        if e.get("eg"):
+            # hand-written Trigger/Effect columns beat my text guesses; text only adds plain mentions
+            roles = {}
+            for n in e["eg"]:
+                for k, v in roles_from_endgame(n.get("trigger"), n.get("effect")).items():
+                    roles.setdefault(k, set()).update(v)
+            for k in text_roles:
+                roles.setdefault(k, {"mention"})
+        else:
+            roles = text_roles
+        if e["cat"] == "verb":
+            for name, grp, rx in KW_RE:
+                if rx.fullmatch(e["name"].strip()):
+                    roles.setdefault(name, set()).add("produce")
         e["kw"] = {k: sorted(v) for k, v in roles.items()}
 
-    (DATA / "sheets").mkdir(parents=True, exist_ok=True)
-    tabs = {}
-    for key, src in raw.items():
-        sheets = [compact_sheet(s, src["id"]) for s in src["sheets"]]
-        (DATA / "sheets" / f"{key}.json").write_text(json.dumps(sheets, ensure_ascii=False, separators=(",", ":")))
-        tabs[key] = [{"name": s["name"], "gid": s["gid"], "rows": len(s["grid"])} for s in src["sheets"]]
+    tabs = {key: [{"name": s["name"], "gid": s["gid"]} for s in src["sheets"]] for key, src in raw.items()}
+    (DATA / "weapons.json").write_text(json.dumps(
+        {"weapons": weapons, "exotics": list(exotic_ratings.values())}, ensure_ascii=False, separators=(",", ":")))
+    print(f"{len(weapons)} legendary weapons, {len(exotic_ratings)} exotic ratings")
 
     tables = build_tables(raw)
     (DATA / "tables.json").write_text(json.dumps(tables, ensure_ascii=False, separators=(",", ":")))
@@ -613,7 +802,7 @@ def main():
         {"entries": out.entries, "keywords": keyword_meta, "prismaticShared": shared_by_class},
         ensure_ascii=False, separators=(",", ":")))
 
-    meta = {"fetched": raw_all.get("fetched"), "sources": {}}
+    meta = {"fetched": raw_all.get("fetched"), "counts": {"weapons": len(weapons)}, "sources": {}}
     for key, src in raw.items():
         meta["sources"][key] = {**SOURCES[key], "id": src["id"], "title": src["title"], "tabs": tabs[key]}
     (DATA / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1))

@@ -1,0 +1,19 @@
+{
+  "name": "fuzzy-eureka-d2-data",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Searchable Destiny 2 data compiled from community spreadsheets, with a synergy-aware build planner.",
+  "type": "module",
+  "scripts": {
+    "start": "http-server . -p 8080 -c-1 -o",
+    "data": "python3 tools/fetch_sheets.py && python3 tools/build_data.py",
+    "data:rebuild": "python3 tools/build_data.py",
+    "build": "node tools/build-dist.mjs",
+    "preview": "npm run build && http-server dist -p 8081 -c-1 -o",
+    "deploy": "npm run build && gh-pages -d dist --dotfiles -m \"Deploy site\""
+  },
+  "devDependencies": {
+    "gh-pages": "^6.1.1",
+    "http-server": "^14.1.1"
+  }
+}
