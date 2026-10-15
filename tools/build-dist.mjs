@@ -1,5 +1,6 @@
 // Copies only what the live site needs into dist/ (skips raw.json and the Python tools).
-import { cpSync, existsSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23,5 +24,18 @@ for (const needed of ["data/entries.json", "data/meta.json", "data/tables.json",
     process.exit(1);
   }
 }
+// cache-busting: GitHub Pages tells browsers to keep files for 10 minutes, so stamp this build's
+// content hash onto the script/style URLs and onto <html data-build> (app.js adds it to data fetches)
+const hash = createHash("sha1");
+for (const dir of ["assets", "data"]) {
+  for (const f of readdirSync(join(dist, dir)).sort()) hash.update(f).update(readFileSync(join(dist, dir, f)));
+}
+const build = hash.digest("hex").slice(0, 10);
+const indexPath = join(dist, "index.html");
+const html = readFileSync(indexPath, "utf8")
+  .replace(/<html([^>]*)>/, `<html$1 data-build="${build}">`)
+  .replace(/(assets\/(?:app\.js|style\.css))"/g, `$1?v=${build}"`);
+writeFileSync(indexPath, html);
+
 const kb = (p) => Math.round(statSync(join(dist, p)).size / 1024);
-console.log(`dist/ ready (entries ${kb("data/entries.json")} KB, tables ${kb("data/tables.json")} KB)`);
+console.log(`dist/ ready, build ${build} (entries ${kb("data/entries.json")} KB, tables ${kb("data/tables.json")} KB)`);
