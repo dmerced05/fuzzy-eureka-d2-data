@@ -35,7 +35,7 @@ export function extractWeapons(m, version) {
     const p = I[hash];
     if (!p) return false;
     if (!perks[hash]) {
-      const stats = (p.investmentStats || []).filter((s) => s.value && ST[s.statTypeHash]?.displayProperties?.name)
+      const stats = (p.investmentStats || []).filter((s) => s.value && !s.isConditionallyActive && ST[s.statTypeHash]?.displayProperties?.name)
         .map((s) => { statNames[s.statTypeHash] = ST[s.statTypeHash].displayProperties.name; return [s.statTypeHash, s.value]; });
       perks[hash] = {
         n: p.displayProperties?.name || "",
@@ -50,6 +50,49 @@ export function extractWeapons(m, version) {
   };
 
   const sockCatName = (h) => SC[h]?.displayProperties?.name || "";
+
+  // stat groups: how invested stat points turn into the numbers the game shows (e.g. Magazine 65 -> 10 rounds)
+  const statGroups = {};
+  const keepGroup = (gh) => {
+    const g = SG[gh];
+    if (!g || statGroups[gh]) return;
+    statGroups[gh] = {};
+    (g.scaledStats || []).forEach((ss) => {
+      statGroups[gh][ss.statHash] = { max: ss.maximumValue ?? 100, t: (ss.displayInterpolation || []).map((x) => [x.value, x.weight]) };
+    });
+  };
+  // shared plug sets for weapon mods and masterworks, curated once and referenced by hash
+  const plugSets = {};
+  const modSet = (setHash) => {
+    if (!setHash || plugSets[setHash]) return setHash;
+    const out = [];
+    const byName = new Map();
+    (P[setHash]?.reusablePlugItems || []).forEach(({ plugItemHash: h }) => {
+      const d = I[h];
+      const name = d?.displayProperties?.name;
+      if (!name || /^Empty/i.test(name) || /mod_empty/.test(d.plug?.plugCategoryIdentifier || "")) return;
+      if (!byName.has(name)) { byName.set(name, [h]); out.push(byName.get(name)); }
+      else if (byName.get(name).length === 1) byName.get(name).push(h); // second copy = the enhanced/adept version
+      keepPerk(h);
+    });
+    out.forEach((pair) => { if (pair[1]) perks[pair[1]].e = 1; });
+    plugSets[setHash] = out;
+    return setHash;
+  };
+  const masterworkSet = (setHash) => {
+    if (!setHash || plugSets[setHash]) return setHash;
+    // one option per stat: the highest-tier plug ("Masterworked: Range" = +10)
+    const best = new Map();
+    (P[setHash]?.reusablePlugItems || []).forEach(({ plugItemHash: h }) => {
+      const d = I[h];
+      const cat = d?.plug?.plugCategoryIdentifier || "";
+      if (!/masterworks\.stat\./.test(cat)) return;
+      const total = (d.investmentStats || []).filter((x) => !x.isConditionallyActive).reduce((n, x) => n + x.value, 0);
+      if (!best.has(cat) || total > best.get(cat).total) best.set(cat, { h, total });
+    });
+    plugSets[setHash] = [...best.values()].filter((x) => x.total > 0).map(({ h }) => { keepPerk(h); return [h]; });
+    return setHash;
+  };
   const all = [];
   for (const item of Object.values(I)) {
     if (item.itemType !== 3 || item.redacted || !item.displayProperties?.name) continue;
@@ -96,6 +139,18 @@ export function extractWeapons(m, version) {
     let traitN = 0;
     columns.forEach((c) => { if (c.label === "Trait") c.label = `Trait ${++traitN}`; });
 
+    // weapon mod and masterwork sockets
+    let mods, mw;
+    item.sockets.socketEntries.forEach((entry) => {
+      const set = entry.reusablePlugSetHash || entry.randomizedPlugSetHash;
+      const initCat = I[entry.singleInitialItemHash]?.plug?.plugCategoryIdentifier || "";
+      const firstCat = I[P[set]?.reusablePlugItems?.[0]?.plugItemHash]?.plug?.plugCategoryIdentifier || "";
+      if (/weapon\.mod_empty/.test(initCat) && P[set]) mods = modSet(set);
+      else if (/masterworks\.stat\./.test(initCat + " " + firstCat) && P[set]) mw = masterworkSet(set);
+    });
+    keepGroup(item.stats?.statGroupHash);
+    const inv = (item.investmentStats || []).filter((x) => x.value && !x.isConditionallyActive).map((x) => [x.statTypeHash, x.value]);
+
     // displayed stats, in the order the game shows them
     const group = SG[item.stats?.statGroupHash];
     const order = (group?.scaledStats || []).map((s) => s.statHash);
@@ -120,6 +175,8 @@ export function extractWeapons(m, version) {
       craftable: !!item.inventory?.recipeItemHash,
       adept: !!item.isAdept || /\((Adept|Timelost|Harrowed)\)/.test(item.displayProperties.name),
       stats,
+      inv, sg: item.stats?.statGroupHash,
+      ...(mods ? { mods } : {}), ...(mw ? { mw } : {}),
       cols: columns,
     });
   }
@@ -148,9 +205,12 @@ export function extractWeapons(m, version) {
   // drop perks no kept weapon references
   const used = new Set();
   weapons.forEach((w) => { if (w.frameHash) used.add(w.frameHash); w.cols.forEach((c) => [...c.perks, ...(c.retired || [])].forEach((h) => used.add(h))); });
+  Object.values(plugSets).forEach((list) => list.flat().forEach((h) => used.add(h)));
+  const usedGroups = new Set(weapons.map((w) => String(w.sg)));
+  for (const g of Object.keys(statGroups)) if (!usedGroups.has(g)) delete statGroups[g];
   for (const h of Object.keys(perks)) if (!used.has(+h)) delete perks[h];
 
-  return { version, generated: new Date().toISOString(), statNames, perks, weapons };
+  return { version, generated: new Date().toISOString(), statNames, statGroups, plugSets, perks, weapons };
 }
 
 // Exotic catalysts. Most live as their own "<Weapon> Catalyst" mod items (the weapon itself only has an
@@ -166,7 +226,7 @@ export function attachCatalysts(m, weapons, perks, statNames) {
     /masterwork/.test(x.plug?.plugCategoryIdentifier || ""));
   const fromItem = (c) => {
     const [, ...rest] = (c.displayProperties.description || "").split(/\n\n/);
-    const stats = (c.investmentStats || []).filter((x) => x.value && ST[x.statTypeHash]?.displayProperties?.name)
+    const stats = (c.investmentStats || []).filter((x) => x.value && !x.isConditionallyActive && ST[x.statTypeHash]?.displayProperties?.name)
       .map((x) => { statNames[x.statTypeHash] = ST[x.statTypeHash].displayProperties.name; return [x.statTypeHash, x.value]; });
     return {
       n: c.displayProperties.name,

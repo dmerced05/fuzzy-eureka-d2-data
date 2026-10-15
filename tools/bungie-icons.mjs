@@ -6,7 +6,8 @@
 //
 // extractIcons() stays plain JS so I can also run it in a browser tab.
 
-export const ICON_COMPONENTS = ["DestinyInventoryItemDefinition", "DestinyActivityDefinition"];
+export const ICON_COMPONENTS = ["DestinyInventoryItemDefinition", "DestinyActivityDefinition",
+  "DestinyEquipableItemSetDefinition", "DestinySandboxPerkDefinition"];
 
 export function extractIcons(m, version) {
   const I = m.DestinyInventoryItemDefinition;
@@ -33,7 +34,36 @@ export function extractIcons(m, version) {
     if (!name || !img || /missing|default|placeholder/i.test(img)) continue;
     if (!activities[name]) activities[name] = img;
   }
-  return { version, generated: new Date().toISOString(), abilities, armor, activities };
+  // armor mods by name (current slot mods win over legacy/deprecated copies)
+  const mods = {};
+  const modRank = (t) => (/Legacy|Deprecated/.test(t) ? 2 : /Artifice/.test(t) ? 1 : 0);
+  for (const it of Object.values(I)) {
+    const name = it.displayProperties?.name, icon = it.displayProperties?.icon;
+    if (it.itemType !== 19 || !icon || !name || /^Empty/.test(name) || !/^enhancements\./.test(it.plug?.plugCategoryIdentifier || "")) continue;
+    const rank = modRank(it.itemTypeDisplayName || "");
+    if (!mods[name] || rank < mods[name].r) mods[name] = { i: icon, r: rank };
+  }
+  Object.values(mods).forEach((x) => delete x.r);
+  // armor sets: the 2-/4-piece perk icons and one chest piece per class
+  const sets = {};
+  const ES = m.DestinyEquipableItemSetDefinition || {};
+  const SP = m.DestinySandboxPerkDefinition || {};
+  const CLS = { 0: "Titan", 1: "Hunter", 2: "Warlock" };
+  for (const st of Object.values(ES)) {
+    const name = st.displayProperties?.name;
+    if (!name) continue;
+    const perks = {};
+    (st.setPerks || []).forEach((p) => { const d = SP[p.sandboxPerkHash]?.displayProperties; if (d?.icon) perks[p.requiredSetCount] = { n: d.name, i: d.icon }; });
+    const pieces = {};
+    (st.setItems || []).map((h) => I[h]).filter(Boolean).forEach((it) => {
+      const cls = CLS[it.classType];
+      if (!cls || !it.displayProperties?.icon) return;
+      // prefer the chest piece, otherwise whatever comes first
+      if (!pieces[cls] || /Chest/i.test(it.itemTypeDisplayName || "")) pieces[cls] = { n: it.displayProperties.name, i: it.displayProperties.icon };
+    });
+    sets[name] = { perks, pieces };
+  }
+  return { version, generated: new Date().toISOString(), abilities, armor, activities, mods, sets };
 }
 
 // ---------------------------------------------------------------- CLI (Node only)

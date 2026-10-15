@@ -539,6 +539,54 @@ def table_from(sh, header_row, data_start, label_rows=None, drop_cols=()):
     return {"columns": [n for _, n in cols], "rows": rows}
 
 
+def build_armor_guide(sheet):
+    """Armor stat explanations, Health/Shield numbers and the Armor Charge primer from the Compendium's
+    Game Mechanics tab. The tab is a hand-laid-out page, so I walk it by its headings."""
+    g = sheet["grid"]
+    cell_ = lambda r, c: (g[r][c] if r < len(g) and c < len(g[r]) else "").strip()
+    PLACEHOLDER = {"", "-", "-x", "-%", "?"}
+
+    def table_from(r):
+        rows = []
+        # a table is a run of rows with a label in column B and values from column C on; a blank row ends it
+        while r < len(g) and cell_(r, 1) and cell_(r, 2):
+            label = cell_(r, 1)
+            vals = [cell_(r, c) for c in range(2, len(g[r]))]
+            while vals and vals[-1] == "":
+                vals.pop()
+            if any(v not in PLACEHOLDER for v in vals):
+                rows.append([label] + vals)
+            r += 1
+        return rows, r
+
+    guide = {"stats": [], "health": None, "armorCharge": None, "tab": sheet["name"]}
+    section = None
+    r = 0
+    while r < len(g):
+        c1, c2, c4 = cell_(r, 1), cell_(r, 2), cell_(r, 4)
+        if c2 == "What are Armor Charges?":
+            guide["armorCharge"] = {"name": "Armor Charge", "desc": cell_(r + 1, 2)}
+        elif c1.startswith("Health and Shields"):
+            desc = cell_(r + 1, 2)
+            rows, r2 = table_from(r + 2)
+            guide["health"] = {"name": "Health and Shields", "desc": desc, "rows": rows}
+            r = r2
+            continue
+        elif c1 == "Character Attributes" and c2 == "Armor Stats":
+            section = "stats"
+        elif section == "stats" and c1 and not c2 and not c4:
+            section = None
+        elif section == "stats" and not c1 and c2 and c4:
+            rows, r2 = table_from(r + 1)
+            guide["stats"].append({"name": c2, "desc": c4, "rows": rows})
+            r = r2
+            continue
+        elif section == "stats" and c1 and c1 != "Character Attributes" and c2 == c1:
+            section = None
+        r += 1
+    return guide
+
+
 def build_tables(raw):
     bd = {s["name"]: s for s in raw["bossdamage"]["sheets"]}
     bh = {s["name"]: s for s in raw["bosshealth"]["sheets"]}
@@ -1121,6 +1169,7 @@ def main():
     if bungie_file.exists():
         bw = build_weapon_pages(json.loads(bungie_file.read_text()), weapons, notes, exotic_ratings)
         weapon_payload = {"version": bw.get("version"), "statNames": bw["statNames"], "perks": bw["perks"],
+                          "statGroups": bw.get("statGroups", {}), "plugSets": bw.get("plugSets", {}),
                           "weapons": bw["weapons"], "exotics": list(exotic_ratings.values())}
         # the sheet's own per-type ranking lists, in sheet order, with a link to our weapon page
         slug_by_key = {weapon_key(w["n"]): w["slug"] for w in bw["weapons"]}
@@ -1144,6 +1193,11 @@ def main():
         print("stacking:", [(c["name"], sum(len(g["entries"]) for g in c["groups"]), len(c["lists"])) for c in stacking["categories"]])
 
     tables = build_tables(raw)
+    gm = next((sh for sh in raw["compendium"]["sheets"] if sh["name"] == "Game Mechanics"), None)
+    if gm:
+        tables["armorGuide"] = build_armor_guide(gm)
+        print("armor guide:", [x["name"] for x in tables["armorGuide"]["stats"]],
+              "health rows:", len((tables["armorGuide"]["health"] or {}).get("rows", [])))
     if "endgame" in raw:
         tables["archetypes"] = build_archetypes(raw["endgame"])
     (DATA / "tables.json").write_text(json.dumps(tables, ensure_ascii=False, separators=(",", ":")))

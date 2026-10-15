@@ -623,8 +623,8 @@
       { label: "Weapon traits", cat: "weapon-trait" },
       { label: "Origin traits", cat: "origin-trait" },
       { label: "Weapon frames", cat: "intrinsic" },
-      { label: "Armor set bonuses", cat: "armor-set" },
-      { label: "Armor mods", cat: "armor-mod" },
+      { label: "Armor set bonuses", href: "#/armor", count: () => S.entries.filter((e) => e.cat === "armor-set").length, blurb: "2- and 4-piece bonuses with Endgame notes" },
+      { label: "Armor mods & stats", href: "#/armor/mods", count: () => S.entries.filter((e) => e.cat === "armor-mod").length, blurb: "Every mod, plus what each armor stat does" },
       { label: "Artifacts", href: "#/wiki/artifacts", count: () => artifacts().length, blurb: "Every seasonal artifact and its perks" },
     ] },
     { title: "Endgame", items: [
@@ -994,25 +994,32 @@
     const compSplit = splitCatalystText(comp?.desc);
 
     // collapse enhanced copies into their base perk
-    const colHTML = (c) => {
+    const enhOf = {}; // base perk hash -> its enhanced copy in the same column
+    const colHTML = (c, ci) => {
       const seen = new Map();
       c.perks.forEach((h) => {
         const p = P[h]; if (!p) return;
         const k = normName(p.n);
-        if (!seen.has(k)) seen.set(k, { h, p, enhanced: false });
-        if (p.e) seen.get(k).enhanced = true;
-        else if (seen.get(k).p.e) seen.set(k, { h, p, enhanced: true });
+        const x = seen.get(k) || seen.set(k, { base: null, enh: null }).get(k);
+        if (p.e) x.enh ||= h; else x.base ||= h;
       });
-      const items = [...seen.values()];
+      const items = [...seen.values()].map(({ base, enh }) => {
+        const h = base || enh;
+        if (base && enh) enhOf[base] = enh;
+        return { h, p: P[h], enhanced: !!enh };
+      });
+      // deprecated perks sink to the bottom of their column
+      items.sort((a, b) => isDeprecated(a.p) - isDeprecated(b.p));
       const retired = (c.retired || []).map((h) => P[h]).filter((p) => p && !p.e && !seen.has(normName(p.n)));
       return `<section class="pcol" aria-label="${esc(c.label)}">
         <h3>${esc(c.label)}</h3>
         <ul>${items.map(({ h, p, enhanced }) => {
           const rec = recommended.get(normName(p.n));
           const alt = altSet.has(normName(p.n));
-          return `<li><button type="button" class="pk ${rec ? "rec" : ""} ${alt ? "alt" : ""} ${perkSel === String(h) ? "sel" : ""}" data-perk="${h}" title="${esc(p.n)}${p.eg?.tier ? ` (Endgame tier ${p.eg.tier})` : ""}">
+          const dep = isDeprecated(p);
+          return `<li><button type="button" class="pk ${rec ? "rec" : ""} ${alt ? "alt" : ""} ${dep ? "deprecated" : ""} ${perkSel === String(h) ? "sel" : ""}" data-perk="${h}" ${c.noPick ? "" : `data-col="${ci}"`} title="${esc(p.n)}${dep ? " (deprecated)" : ""}${p.eg?.tier ? ` (Endgame tier ${p.eg.tier})` : ""}">
             ${p.i ? `<img src="${BNET}${esc(p.i)}" alt="" loading="lazy" width="36" height="36">` : `<span class="pk-noimg"></span>`}
-            <span class="pk-name">${esc(p.n)}${enhanced ? `<span class="pk-enh" title="Enhanced version available">↑</span>` : ""}</span>
+            <span class="pk-name">${esc(p.n)}${enhanced ? `<span class="pk-enh" title="Enhanced version available">↑</span>` : ""}${dep ? `<span class="pk-dep">Deprecated</span>` : ""}</span>
             ${p.eg?.tier ? `<span class="pk-tier tier-${esc(p.eg.tier)}">${esc(p.eg.tier)}</span>` : ""}
           </button></li>`;
         }).join("")}</ul>
@@ -1020,10 +1027,19 @@
       </section>`;
     };
 
-    const statBar = ([h, v]) => {
+    // stat bar with the picked perks' change drawn on top: green for gains, red for losses
+    // stat row: base value in white, the change from your picks in green (gain) or red (loss)
+    const statBar = ([h, v], nv = v) => {
       const name = S.weapons.statNames[h] || h;
-      const bar = !/Rounds Per Minute|Magazine|Charge Time|Draw Time|Ammo Generation|Swing Speed|Ammo Capacity|Blast Radius|Velocity|Recoil/i.test(name) || /Recoil Direction/i.test(name);
-      return `<div class="stat"><span class="st-name">${esc(name)}</span>${bar && v <= 100 ? `<span class="st-bar"><span style="width:${Math.max(0, Math.min(100, v))}%"></span></span>` : `<span class="st-bar st-none"></span>`}<span class="st-val">${esc(v)}</span></div>`;
+      const bar = (!/Rounds Per Minute|Magazine|Charge Time|Draw Time|Ammo Generation|Swing Speed|Ammo Capacity|Blast Radius|Velocity|Recoil/i.test(name) || /Recoil Direction/i.test(name)) && v <= 100;
+      const clamp = (x) => Math.max(0, Math.min(100, x));
+      if (bar) nv = clamp(nv);
+      const d = nv - v;
+      const lo = Math.min(clamp(v), clamp(nv)), hi = Math.max(clamp(v), clamp(nv));
+      const delta = d ? `<span class="st-d ${d > 0 ? "up" : "down"}">${d > 0 ? "+" : ""}${d}</span>` : "";
+      return `<div class="stat"><span class="st-name">${esc(name)}</span>${bar
+        ? `<span class="st-bar"><span class="st-base" style="width:${lo}%"></span>${hi > lo ? `<span class="${nv > v ? "st-plus" : "st-minus"}" style="left:${lo}%;width:${hi - lo}%"></span>` : ""}</span>`
+        : `<span class="st-bar st-none"></span>`}<span class="st-val">${esc(nv)}${delta}</span></div>`;
     };
 
     const whyList = (x) => {
@@ -1060,6 +1076,35 @@
         ${w.egExotic.usage ? `<p class="muted">${esc(w.egExotic.usage)}</p>` : ""}</section>`
       : `<section class="wcard-sec"><h3>Not ranked</h3><p class="muted">Endgame Analysis doesn't rank this weapon, usually because it's outclassed or no longer obtainable. Perk ratings below still apply.</p></section>`;
 
+    // stat math: invested points -> shown value through the weapon's stat group (Bungie's lookup tables)
+    const group = S.weapons.statGroups?.[w.sg] || {};
+    const baseInv = Object.fromEntries(w.inv || []);
+    const shownStat = (h, extra, fallback) => {
+      const t = group[h]?.t;
+      if (!t?.length || baseInv[h] === undefined) return fallback + extra;
+      const x = Math.max(0, baseInv[h] + extra);
+      if (x <= t[0][0]) return t[0][1];
+      for (let i = 1; i < t.length; i++) {
+        if (x <= t[i][0]) { const [v0, w0] = t[i - 1], [v1, w1] = t[i]; return Math.round(w0 + ((x - v0) / (v1 - v0)) * (w1 - w0)); }
+      }
+      return t[t.length - 1][1];
+    };
+    const statSummary = (p) => (p?.s || []).filter(([sh]) => group[sh] || w.stats.some(([h]) => String(h) === String(sh))).map(([sh, v]) => `${v > 0 ? "+" : ""}${v} ${S.weapons.statNames[sh] || ""}`).join(", ");
+    const inGroup = (p) => (p?.s || []).some(([sh]) => w.stats.some(([h]) => String(h) === String(sh)));
+    const mwOptions = (S.weapons.plugSets?.[w.mw] || []).map(([h]) => P[h]).map((p, i) => [S.weapons.plugSets[w.mw][i][0], p])
+      // only masterworks named for a stat this weapon actually shows (no Persistence on a hand cannon)
+      .filter(([, p]) => {
+        if (!inGroup(p)) return false;
+        const named = p.n.replace(/^(Masterworked|Tier \d+): /, "");
+        const isStatName = Object.values(S.weapons.statNames).includes(named);
+        return !isStatName || w.stats.some(([sh]) => S.weapons.statNames[sh] === named);
+      })
+      .map(([h, p]) => [h, `${p.n.replace(/^Masterworked: /, "")} (${statSummary(p)})`]);
+    const modPairs = S.weapons.plugSets?.[w.mods] || [];
+    const modEnh = Object.fromEntries(modPairs.filter((x) => x[1]).map(([a, b]) => [a, b]));
+    const modOptions = modPairs.map(([h]) => [h, P[h]]).filter(([, p]) => p)
+      .map(([h, p]) => [h, `${p.n}${statSummary(p) ? ` (${statSummary(p)})` : ""}`]);
+
     app.innerHTML = `
       ${crumbs([["Home", "#/"], ["Weapons", "#/weapons"], [w.n]])}
       <header class="whero ${w.tier === "Exotic" ? "exotic" : ""} el-${esc(w.el)}" ${w.shot ? `style="--shot:url('${BNET}${esc(w.shot)}')"` : ""}>
@@ -1075,15 +1120,24 @@
       <div class="wpage">
         <div class="wpage-main">
           <section class="perks-grid" aria-label="Perk pool">
-            <div class="pg-head"><h2>Perks it can roll</h2><span class="legend"><span><i class="lg rec"></i>Suggested roll</span><span><i class="lg alt"></i>Other strong pick</span><span>↑ enhanced available</span></span></div>
-            <div class="pcols">${(w.tier === "Exotic" && w.frameHash ? [{ label: "Exotic perk", perks: [w.frameHash] }, ...w.cols] : w.cols).map(colHTML).join("")}</div>
+            <div class="pg-head"><h2>Perks it can roll</h2><span class="legend"><span><i class="lg rec"></i>Suggested roll</span><span><i class="lg alt"></i>Other strong pick</span><span><i class="lg pick"></i>Your pick</span><span>↑ enhanced available</span></span></div>
+            <div class="pcols">${(w.tier === "Exotic" && w.frameHash ? [{ label: "Exotic perk", perks: [w.frameHash], noPick: true }, ...w.cols] : w.cols).map(colHTML).join("")}</div>
           </section>
           <section class="perk-detail" data-perkdetail aria-live="polite"><p class="muted">Select a perk to see what it does.</p></section>
           ${catalystHTML(w, compSplit.cat)}
           ${comp && compSplit.rest.trim() ? `<section class="wcard-sec"><h3>Compendium notes</h3><div class="desc">${fmt(compSplit.rest)}</div><p><a href="${itemHref(comp)}">Open the full Compendium entry</a></p></section>` : ""}
         </div>
         <aside class="wpage-side">
-          ${w.stats?.length ? `<section class="wcard-sec"><h3>Base stats</h3><div class="stats">${w.stats.map(statBar).join("")}</div></section>` : ""}
+          ${w.stats?.length ? `<section class="wcard-sec" data-statsbox><h3>Stats</h3>
+            <div class="stat-tools"><label><input type="checkbox" data-enh> Enhanced perks</label><button type="button" class="btn btn-sm" data-clearroll hidden>Clear picks</button></div>
+            ${mwOptions.length || modOptions.length || w.catalyst?.s ? `<div class="stat-pickers">
+              ${mwOptions.length ? `<label>Masterwork <select class="input" data-mw><option value="">None</option>${mwOptions.map(([h, label]) => `<option value="${h}">${esc(label)}</option>`).join("")}</select></label>` : ""}
+              ${modOptions.length ? `<label>Weapon mod <select class="input" data-mod><option value="">None</option>${modOptions.map(([h, label]) => `<option value="${h}">${esc(label)}</option>`).join("")}</select></label>` : ""}
+              ${w.catalyst?.s ? `<label class="chk"><input type="checkbox" data-cat> Catalyst (${esc(w.catalyst.s.map(([sh, v]) => `${v > 0 ? "+" : ""}${v} ${S.weapons.statNames[sh] || ""}`).join(", "))})</label>` : ""}
+            </div>` : ""}
+            <p class="muted roll-hint" data-rollhint>Click perks in each column, or pick a masterwork and mod, to build a roll; the bars update as you go.</p>
+            <div class="stats" data-statbars></div>
+            <p class="muted st-note">Calculated the way the game does it: perk, masterwork and mod points are added to the weapon's hidden stat values, then run through Bungie's per-weapon lookup tables (that's why a mag perk adds 2 rounds on one gun and 6 on another).</p></section>` : ""}
           ${verdict}
           ${altsHTML()}
           ${archetypeCard(w)}
@@ -1100,6 +1154,7 @@
       const box = app.querySelector("[data-perkdetail]");
       box.innerHTML = `
         <div class="pd-head">${p.i ? `<img src="${BNET}${esc(p.i)}" alt="" width="44" height="44">` : ""}<div><h3>${esc(p.n)} ${tierBadge(p.eg?.tier, "Endgame perk tier")}</h3><span class="muted">${esc(p.t)}</span></div></div>
+        ${isDeprecated(p) ? `<p class="dep-note"><b>Deprecated.</b> Bungie still lists ${esc(p.n)} in a shared magazine pool, but it isn't part of this weapon's real roll pool.</p>` : ""}
         ${p.d ? `<p>${esc(p.d)}</p>` : ""}
         ${p.s?.length ? `<p class="muted">${p.s.map(([sh, v]) => `${v > 0 ? "+" : ""}${v} ${esc(S.weapons.statNames[sh] || "")}`).join(" · ")}</p>` : ""}
         ${p.eg?.trigger || p.eg?.effect ? `<p><span class="muted">Endgame Analysis:</span> ${esc(p.eg.trigger || "")}${p.eg.trigger && p.eg.effect ? " → " : ""}${esc(p.eg.effect || "")}</p>` : ""}
@@ -1108,16 +1163,62 @@
         ${glossaryBoxHTML([p.d, ce?.desc, p.eg?.effect])}
         <p><a href="#/weapons?perk=${encodeURIComponent(p.n)}">Other weapons that can roll ${esc(p.n)}</a></p>`;
     };
+    // the roll you're building: column index -> base perk hash
+    const picks = new Map();
+    let useEnh = false;
+    const gear = { mw: "", mod: "", cat: false };
+    const drawStats = () => {
+      const box = app.querySelector("[data-statbars]");
+      if (!box) return;
+      const delta = {};
+      const add = (p) => (p?.s || []).forEach(([sh, v]) => { delta[sh] = (delta[sh] || 0) + v; });
+      for (const h of picks.values()) add(P[(useEnh && enhOf[h]) || h]);
+      if (gear.mw) add(P[gear.mw]);
+      if (gear.mod) add(P[(useEnh && modEnh[gear.mod]) || gear.mod]);
+      if (gear.cat && w.catalyst?.s) add({ s: w.catalyst.s });
+      box.innerHTML = w.stats.map(([h, v]) => statBar([h, v], shownStat(h, delta[h] || 0, v))).join("");
+      app.querySelector("[data-clearroll]").hidden = !picks.size && !gear.mw && !gear.mod && !gear.cat;
+      app.querySelector("[data-rollhint]").hidden = !!picks.size;
+    };
+    const markPicks = () => {
+      app.querySelectorAll(".pk.picked").forEach((x) => x.classList.remove("picked"));
+      for (const [ci, h] of picks) app.querySelector(`.pk[data-col="${ci}"][data-perk="${h}"]`)?.classList.add("picked");
+    };
+    app.onchange = (ev) => {
+      const t = ev.target;
+      if (t.matches("[data-enh]")) useEnh = t.checked;
+      else if (t.matches("[data-mw]")) gear.mw = t.value;
+      else if (t.matches("[data-mod]")) gear.mod = t.value;
+      else if (t.matches("[data-cat]")) gear.cat = t.checked;
+      else return;
+      drawStats();
+    };
     app.onclick = (ev) => {
+      if (ev.target.closest("[data-clearroll]")) {
+        picks.clear(); gear.mw = gear.mod = ""; gear.cat = false;
+        app.querySelectorAll("[data-mw], [data-mod]").forEach((x) => { x.value = ""; });
+        app.querySelectorAll("[data-cat]").forEach((x) => { x.checked = false; });
+        markPicks(); drawStats(); return;
+      }
       const b = ev.target.closest("[data-perk]");
       if (!b) return;
+      if (b.dataset.col !== undefined) {
+        const ci = b.dataset.col;
+        if (picks.get(ci) === b.dataset.perk) picks.delete(ci); else picks.set(ci, b.dataset.perk);
+        markPicks(); drawStats();
+      }
       showPerk(b.dataset.perk);
       if (window.matchMedia("(max-width: 900px)").matches) app.querySelector("[data-perkdetail]").scrollIntoView({ behavior: "smooth", block: "nearest" });
     };
     // open on the top pick so the panel isn't empty
     const first = w.tier === "Exotic" ? w.frameHash : w.cols.find((c) => c.label.startsWith("Trait"))?.perks.find((h) => recommended.has(normName(P[h]?.n)));
     if (first) showPerk(first);
+    drawStats();
   }
+
+  // perks Bungie still lists but that don't actually roll
+  const DEPRECATED_PERKS = new Set(["dropmag"]);
+  const isDeprecated = (p) => !!p && DEPRECATED_PERKS.has(normName(p.n));
 
 
   // ------------------------------------------------------------ archetypes (Endgame Analysis)
@@ -1161,6 +1262,169 @@
     return `<a class="thumb" href="#/weapon/${w.slug}" title="${esc(w.n)}" aria-label="${esc(w.n)}"><img src="${BNET}${esc(w.icon)}" alt="" width="${size}" height="${size}" loading="lazy"></a>`;
   }
 
+  // ------------------------------------------------------------ armor: set bonuses | mods & stats
+  // keyword dropdowns: one <details> per glossary keyword the text mentions, plus Armor Charge from the Game Mechanics tab
+  function kwDropsHTML(text, label = "Keywords") {
+    const list = glossaryFor(text || "").map((v) => ({ name: v.name, el: v.el, desc: v.desc, href: itemHref(v) }));
+    const gd = S.tables?.armorGuide;
+    const extra = [];
+    if (gd?.armorCharge?.desc && /armor charge/i.test(text || "")) extra.push({ name: "Armor Charge", el: "", desc: gd.armorCharge.desc });
+    // "+20 | +40 | +50 Super" or "Weapons Stat" -> that armor stat's explanation
+    (gd?.stats || []).forEach((st) => {
+      if (new RegExp(`\\b${st.name} Stat\\b|\\+\\d+(?:\\s*\\|\\s*\\+\\d+)* ${st.name}\\b`).test(text || "")) extra.push({ name: `${st.name} stat`, el: "", desc: st.desc });
+    });
+    list.unshift(...extra);
+    if (!list.length) return "";
+    return `<div class="kwdrops" aria-label="${esc(label)}"><span class="kwdrops-label">${esc(label)}</span>${list.map((v) => `<details class="kwd ${v.el ? `el-${esc(v.el)}` : ""}">
+      <summary>${esc(v.name)}</summary><div class="desc">${fmt(v.desc)}</div>${v.href ? `<p class="kwd-link"><a href="${v.href}">Open ${esc(v.name)}</a></p>` : ""}</details>`).join("")}</div>`;
+  }
+  // "makes Jolt · uses Orbs of Power" from the keyword roles (Endgame Trigger/Effect where it covers the entry)
+  function rolesLine(e) {
+    const r = rolesOf(e);
+    const by = (role) => Object.keys(r).filter((k) => r[k].has(role));
+    const btn = (k) => `<button type="button" class="chip chip-sm" data-akw="${esc(k)}">${esc(k)}</button>`;
+    const mk = by("produce"), us = by("use");
+    if (!mk.length && !us.length) return "";
+    return `<p class="roles">${mk.length ? `<span class="muted">Makes</span> ${mk.map(btn).join("")}` : ""}${us.length ? ` <span class="muted">Uses</span> ${us.map(btn).join("")}` : ""}</p>`;
+  }
+
+  const modIcon = (name) => {
+    const k = normName(name.replace(/ Mod$/, ""));
+    return S.icons?.mods.get(normName(name)) || S.icons?.mods.get(k) || S.icons?.mods.get(k + "s") || "";
+  };
+  const setIcons = (name) => S.icons?.sets.get(normName(name.replace(/ Set$/, ""))) || null;
+
+  async function renderArmor(which) {
+    which = which === "mods" ? "mods" : "sets";
+    await Promise.all([ensureTables(), ensureIcons()]);
+    const { q } = parseHash();
+    const tabs = [["sets", "Set bonuses", "#/armor"], ["mods", "Mods & stats", "#/armor/mods"]]
+      .map(([k, label, href]) => `<a href="${href}" ${k === which ? 'aria-current="page"' : ""}>${label}</a>`).join("");
+    const pool = S.entries.filter((e) => e.cat === (which === "sets" ? "armor-set" : "armor-mod"));
+    const kwNames = [...new Set(pool.flatMap((e) => Object.keys(e.kw || {})))].sort();
+    app.innerHTML = `
+      ${crumbs([["Home", "#/"], ["Armor"]])}
+      <h1>Armor</h1>
+      <p class="intro">${which === "sets"
+        ? `Every armor set bonus from the Destiny Data Compendium, with ${esc(S.meta.sources.endgame?.author || "TheAegisRelic")}'s Endgame Analysis trigger, effect and notes for each piece. Open a keyword to see exactly what it does.`
+        : `What each armor stat does at every value, how Armor Charge works, and the exact numbers behind every armor mod, from the Destiny Data Compendium.`}</p>
+      <nav class="tabbar" aria-label="Armor sections">${tabs}</nav>
+      <div class="table-tools">
+        <input class="input" type="search" placeholder="${which === "sets" ? "Search sets, perks, sources…" : "Search mods…"}" value="${esc(q.get("q") || "")}" data-aq aria-label="Search">
+        <select class="input" data-akwsel aria-label="Keyword" style="max-width:220px"><option value="">Any keyword</option>${kwNames.map((k) => `<option ${k === q.get("kw") ? "selected" : ""}>${esc(k)}</option>`).join("")}</select>
+        ${which === "sets" ? `<select class="input" data-asort aria-label="Sort" style="max-width:200px"><option value="">Sort: name</option><option value="tier" ${q.get("sort") === "tier" ? "selected" : ""}>Sort: Endgame tier</option></select>` : ""}
+        <span class="muted" data-acount></span>
+      </div>
+      ${which === "mods" ? armorStatsHTML() : ""}
+      <div data-alist></div>
+      <p class="source-note">From the Destiny Data Compendium's <a href="${esc(sheetUrl("compendium", which === "sets" ? "Armor Perks" : "Armor Mods") || "#")}" target="_blank" rel="noopener">${which === "sets" ? "Armor Perks" : "Armor Mods"}</a>${which === "mods" ? ` and <a href="${esc(sheetUrl("compendium", "Game Mechanics") || "#")}" target="_blank" rel="noopener">Game Mechanics</a> tabs` : " tab"}${which === "sets" ? `, with ratings from <a href="${esc(sheetUrl("endgame", "Set Bonuses") || "#")}" target="_blank" rel="noopener">Endgame Analysis</a>` : ""}. [Brackets] are PvP values, ↑ marks enhanced values, ? is untested.</p>`;
+
+    const listEl = app.querySelector("[data-alist]");
+    const countEl = app.querySelector("[data-acount]");
+    const state = { q: q.get("q") || "", kw: q.get("kw") || "", sort: q.get("sort") || "" };
+    const sync = () => {
+      const p = new URLSearchParams(Object.entries(state).filter(([, v]) => v));
+      history.replaceState(null, "", `#/armor${which === "mods" ? "/mods" : ""}${p.toString() ? "?" + p : ""}`);
+    };
+    const draw = () => {
+      const terms = state.q.toLowerCase().split(/\s+/).filter(Boolean);
+      let rows = pool.filter((e) => (!state.kw || e.kw?.[state.kw]) &&
+        (!terms.length || terms.every((t) => (e._ahay ||= [e.name, e.desc, e.source, e.slot, e.group].join(" ").toLowerCase()).includes(t))));
+      countEl.textContent = `${rows.length} of ${pool.length}`;
+      listEl.innerHTML = which === "sets" ? armorSetsHTML(rows, state.sort) : armorModsHTML(rows);
+    };
+    app.querySelector("[data-aq]").oninput = (ev) => { state.q = ev.target.value; sync(); draw(); };
+    app.querySelector("[data-akwsel]").onchange = (ev) => { state.kw = ev.target.value; sync(); draw(); };
+    const sortEl = app.querySelector("[data-asort]");
+    if (sortEl) sortEl.onchange = (ev) => { state.sort = ev.target.value; sync(); draw(); };
+    app.onclick = (ev) => {
+      const b = ev.target.closest("[data-akw]");
+      if (!b) return;
+      state.kw = b.dataset.akw;
+      app.querySelector("[data-akwsel]").value = state.kw;
+      sync(); draw();
+      app.querySelector("[data-alist]").scrollIntoView({ block: "start", behavior: "smooth" });
+    };
+    draw();
+  }
+
+  function armorSetsHTML(rows, sort) {
+    const best = (e) => Math.min(...(e.eg || []).map((n) => tierRank(n.tier)), 99);
+    rows = rows.slice().sort(sort === "tier" ? (a, b) => best(a) - best(b) || a.name.localeCompare(b.name) : (a, b) => a.name.localeCompare(b.name));
+    if (!rows.length) return `<p>No sets match. Clear the search or keyword.</p>`;
+    return `<div class="armor-grid">${rows.map((e) => {
+      const pieces = e.pieces?.length ? e.pieces : [{ count: "", name: "", desc: e.desc }];
+      const ic = setIcons(e.name);
+      const gear = ic ? ["Hunter", "Titan", "Warlock"].filter((c) => ic.pieces?.[c]).map((c) => `<img src="${BNET}${esc(ic.pieces[c].i)}" alt="" title="${esc(ic.pieces[c].n)} (${c})" width="56" height="56" loading="lazy">`).join("") : "";
+      return `<article class="armor-card">
+        <header>${gear ? `<div class="set-gear">${gear}</div>` : ""}<div class="set-title"><h2><a href="${itemHref(e)}">${esc(e.name)}</a></h2>${e.source ? `<span class="tag">${esc(e.source)}</span>` : ""}</div></header>
+        ${pieces.map((p) => {
+          const cnt = (p.count.match(/\d/) || [""])[0];
+          const n = (e.eg || []).find((x) => String(x.pieces) === cnt);
+          const pi = ic?.perks?.[cnt];
+          return `<section class="piece">
+            <h3>${pi ? `<img class="perk-ic" src="${BNET}${esc(pi.i)}" alt="" width="32" height="32" loading="lazy">` : ""}<span class="pc">${esc(p.count.replace(/ ?Piece/i, "-piece"))}</span> ${esc(p.name)} ${n?.tier ? tierBadge(n.tier, "Endgame Analysis tier") : ""}</h3>
+            <div class="desc">${fmt(p.desc)}</div>
+            ${n && (n.trigger || n.effect || n.analysis) ? `<dl class="kv interactions">
+              ${n.trigger ? `<dt>Trigger</dt><dd>${esc(n.trigger)}</dd>` : ""}
+              ${n.effect ? `<dt>Effect</dt><dd>${esc(n.effect)}</dd>` : ""}
+              ${n.analysis ? `<dt>Endgame notes</dt><dd>${esc(n.analysis)}</dd>` : ""}</dl>` : ""}
+            ${kwDropsHTML(p.desc)}
+          </section>`;
+        }).join("")}
+        ${rolesLine(e)}
+      </article>`;
+    }).join("")}</div>`;
+  }
+
+  const MOD_SLOTS = ["Helmet", "Arms", "Chest", "Legs", "Class Item"];
+  function armorModsHTML(rows) {
+    if (!rows.length) return `<p>No mods match. Clear the search or keyword.</p>`;
+    const card = (e) => { const i = modIcon(e.name); return `<article class="mod-card">
+      <h3>${i ? `<img class="mod-ic" src="${BNET}${esc(i)}" alt="" width="40" height="40" loading="lazy">` : `<span class="mod-ic mod-ic-empty"></span>`}<a href="${itemHref(e)}">${esc(e.name)}</a>${e.cost ? ` <span class="tag">${esc(e.cost)}</span>` : ""}</h3>
+      <div class="desc">${fmt(e.desc)}</div>
+      ${kwDropsHTML(e.desc)}
+    </article>`; };
+    const general = MOD_SLOTS.map((slot) => [slot, rows.filter((e) => e.slot === slot)]).filter(([, l]) => l.length);
+    const special = new Map();
+    rows.filter((e) => !MOD_SLOTS.includes(e.slot)).forEach((e) => {
+      const k = e.group || e.slot || "Other";
+      (special.get(k) || special.set(k, []).get(k)).push(e);
+    });
+    return `<h2 class="armor-h2" id="mods">Armor mods</h2>
+      ${general.map(([slot, l]) => `<section class="mod-slot"><h3 class="slot-h">${esc(slot)} <span class="muted">${l.length}</span></h3><div class="mod-grid">${l.map(card).join("")}</div></section>`).join("")}
+      ${special.size ? `<h2 class="armor-h2">Raid and activity mods</h2>${[...special].map(([g, l]) => `<details class="mod-group"><summary>${esc(g)} <span class="muted">${l.length}</span></summary><div class="mod-grid">${l.map(card).join("")}</div></details>`).join("")}` : ""}`;
+  }
+
+  // stat tables come as runs of rows; a row labelled "... Stat" starts a new table and is its header
+  function statTablesHTML(rows) {
+    const groups = [];
+    rows.forEach((r) => { if (/\bStat$/.test(r[0]) || !groups.length) groups.push([r]); else groups[groups.length - 1].push(r); });
+    return groups.map((g) => {
+      const [head, ...body] = g;
+      const width = Math.max(...g.map((r) => r.length));
+      return `<div class="tablewrap"><table class="data stat-table"><thead><tr>${Array.from({ length: width }, (_, i) => `<th scope="col">${esc(head[i] || "")}</th>`).join("")}</tr></thead>
+        <tbody>${body.map((r) => `<tr><th scope="row">${esc(r[0])}</th>${Array.from({ length: width - 1 }, (_, i) => `<td class="num">${/^-[%x]?$/.test(r[i + 1] || "") ? '<span class="muted" title="Not measured yet">–</span>' : esc(r[i + 1] || "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+    }).join("");
+  }
+  function armorStatsHTML() {
+    const gd = S.tables?.armorGuide;
+    if (!gd) return "";
+    const statCard = (x) => `<article class="stat-card">
+      <h3>${esc(x.name)}</h3>
+      <div class="desc">${fmt(x.desc)}</div>
+      ${x.rows?.length ? `<details class="stat-nums"><summary>Numbers by stat value</summary>${statTablesHTML(x.rows)}</details>` : ""}
+      ${kwDropsHTML(x.desc)}
+    </article>`;
+    return `<h2 class="armor-h2" id="stats">Armor stats</h2>
+      <p class="muted">Each stat works up to 100; past 100 its ↑enhanced benefit kicks in, up to 200.</p>
+      <div class="stat-grid">${gd.stats.map(statCard).join("")}</div>
+      <div class="stat-grid stat-grid-2">
+        ${gd.health ? statCard(gd.health) : ""}
+        ${gd.armorCharge ? `<article class="stat-card"><h3>Armor Charge</h3><div class="desc">${fmt(gd.armorCharge.desc)}</div></article>` : ""}
+      </div>`;
+  }
+
   // ------------------------------------------------------------ exotic catalysts
   function catalystHTML(w, compParas) {
     const c = w.catalyst;
@@ -1197,7 +1461,15 @@
     });
     Object.entries(raw.armor || {}).forEach(([n, i]) => { if (!abil.has(normName(n))) abil.set(normName(n), i); });
     Object.entries(raw.activities || {}).forEach(([n, i]) => { if (!act.has(normName(n))) act.set(normName(n), i); });
-    S.icons = { abil, act };
+    // armor mods: exact names first, then looser keys ("Unflinching Arc Aim" -> "Unflinching Aim", "Heavy Ammo Finder" -> "Ammo Finder")
+    const PLACEHOLDER = "bac622a66416ebb9598d710dacd38b0c"; // Bungie's generic "?" mod icon
+    const mods = new Map();
+    const modEntries = Object.entries(raw.mods || {}).filter(([, x]) => x.i && !x.i.includes(PLACEHOLDER));
+    modEntries.forEach(([n, x]) => { if (!mods.has(normName(n))) mods.set(normName(n), x.i); });
+    const loose = (n) => [n.replace(/\s*\(.*\)$/, ""), n.replace(/\b(Arc|Solar|Void|Stasis|Strand|Kinetic|Harmonic|Heavy|Special)\b\s*/g, ""), n.replace(/s$/, "")];
+    modEntries.forEach(([n, x]) => loose(n).forEach((k) => { const kk = normName(k); if (kk && !mods.has(kk)) mods.set(kk, x.i); }));
+    const sets = new Map(Object.entries(raw.sets || {}).map(([n, x]) => [normName(n.replace(/ Set$/, "")), x]));
+    S.icons = { abil, act, mods, sets };
     return S.icons;
   }
 
@@ -1570,6 +1842,7 @@
     else if (page === "weapon") renderWeapon(parts[1]);
     else if (page === "archetypes") renderArchetypes(parts[1]);
     else if (page === "stacking") renderStacking();
+    else if (page === "armor") renderArmor(parts[1]);
     else if (page === "boss") renderBoss(parts[1]);
     else if (page === "about") renderAbout();
     else renderHome();
