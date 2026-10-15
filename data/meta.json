@@ -1,8 +1,11 @@
 {
  "fetched": "2026-10-15T10:11:05.674Z",
  "counts": {
-  "weapons": 748
+  "weapons": 1104,
+  "legendaries": 963,
+  "exotics": 141
  },
+ "bungieVersion": "244213.26.06.29.2000-1-bnet.65864",
  "sources": {
   "compendium": {
    "id": "1WaxvbLx7UoSZaBqdFr1u32F2uWVLo-CJunJB4nlGUE4",
@@ -695,6 +698,22 @@
      "gid": "1741064497"
     }
    ]
+  },
+  "court": {
+   "id": "1i1KUwgVkd8qhwYj481gkV9sZNJQCE-C3Q-dpQutPCi4",
+   "short": "Damage Buffs/Debuffs",
+   "author": "Court (@CourtProjects)",
+   "contact": "Discord: discord.gg/U4JJNrMyvU",
+   "support": "https://ko-fi.com/courtprojects",
+   "patreon": "https://www.patreon.com/c/CourtProjects",
+   "blurb": "How every damage buff and debuff in the game stacks, sorted into categories, with PvE and PvP values for each source.",
+   "tabs": [
+    {
+     "name": "STACKING GUIDE",
+     "gid": "2073397587"
+    }
+   ],
+   "title": "Destiny 2 Damage Buffs/Debuffs"
   }
  }
 }

@@ -30,5 +30,17 @@
     "contact": "Discord: @theaegisrelic",
     "support": "https://x.com/TheAegisRelic",
     "blurb": "Every legendary weapon ranked by type with its best perks and origin traits, plus ratings for exotics, perks, fragments, aspects, set bonuses and artifact mods."
+  },
+  "court": {
+    "id": "1i1KUwgVkd8qhwYj481gkV9sZNJQCE-C3Q-dpQutPCi4",
+    "short": "Damage Buffs/Debuffs",
+    "author": "Court (@CourtProjects)",
+    "contact": "Discord: discord.gg/U4JJNrMyvU",
+    "support": "https://ko-fi.com/courtprojects",
+    "patreon": "https://www.patreon.com/c/CourtProjects",
+    "blurb": "How every damage buff and debuff in the game stacks, sorted into categories, with PvE and PvP values for each source.",
+    "tabs": [
+      "STACKING GUIDE"
+    ]
   }
 }

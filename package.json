@@ -5,12 +5,14 @@
   "description": "Searchable Destiny 2 data compiled from community spreadsheets, with a synergy-aware build planner.",
   "type": "module",
   "scripts": {
+    "dev": "node tools/dev-server.mjs",
     "start": "http-server . -p 8080 -c-1 -o",
-    "data": "python3 tools/fetch_sheets.py && python3 tools/build_data.py",
+    "data": "python3 tools/fetch_sheets.py && node tools/bungie-weapons.mjs && node tools/bungie-icons.mjs && python3 tools/build_data.py",
     "data:rebuild": "python3 tools/build_data.py",
     "build": "node tools/build-dist.mjs",
     "preview": "npm run build && http-server dist -p 8081 -c-1 -o",
-    "deploy": "npm run build && gh-pages -d dist --dotfiles -m \"Deploy site\""
+    "deploy": "npm run build && gh-pages -d dist --dotfiles -m \"Deploy site\"",
+    "data:bungie": "node tools/bungie-weapons.mjs && node tools/bungie-icons.mjs && python3 tools/build_data.py"
   },
   "devDependencies": {
     "gh-pages": "^6.1.1",

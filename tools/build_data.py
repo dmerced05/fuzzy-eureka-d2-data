@@ -748,6 +748,333 @@ def attach_endgame(entries, notes, exotics):
     return matched
 
 
+# ---------------------------------------------------------------- bungie weapons + endgame picks
+TIER_ORDER = "SABCDEF"
+
+
+def weapon_key(name):
+    return norm(re.sub(r"\s*\((?:adept|timelost|harrowed|baroque)\)\s*$", "", name, flags=re.I))
+
+
+def plural(t):
+    return t if t.endswith("s") else t + "s"
+
+
+def perk_rating(notes, name):
+    hits = notes.get(("perk", norm(name))) or notes.get(("origin", norm(name)))
+    return hits[0] if hits else None
+
+
+def join_or(names):
+    names = [n for n in names if n]
+    if len(names) <= 1:
+        return "".join(names)
+    return ", ".join(names[:-1]) + " or " + names[-1]
+
+
+def weapon_blurb(w, picks, type_counts):
+    """Plain-language summary built only from Endgame Analysis data, so it never claims more than the sheet does."""
+    if not picks:
+        return ""
+    pk = picks[0]
+    parts = []
+    rank = f"#{pk['rank']} of {type_counts.get(pk['type'], '?')} {plural(pk['type']).lower()}" if pk.get("rank") else ""
+    tier = f"{pk['tier']} tier" if pk.get("tier") else ""
+    head = ", ".join(x for x in (rank, tier) if x)
+    parts.append(f"Endgame Analysis ranks {w['n']}{' (' + pk['variant'] + ')' if pk.get('variant') else ''} {head}." if head else "")
+    roll = []
+    if pk.get("perk1"):
+        roll.append(join_or(pk["perk1"]))
+    if pk.get("perk2"):
+        roll.append(join_or(pk["perk2"]))
+    if roll:
+        s = f"The suggested roll pairs {roll[0]}" + (f" with {roll[1]}" if len(roll) > 1 else "")
+        if pk.get("origin") and pk["origin"][0].lower() != "none":
+            s += f", backed by the {join_or(pk['origin'])} origin trait"
+        parts.append(s + ".")
+    if pk.get("notes"):
+        n = pk["notes"].strip()
+        parts.append(f"In the sheet's words: “{n[0].upper() + n[1:]}”" + ("" if n.endswith((".", "!", "?")) else "."))
+    return " ".join(x for x in parts if x)
+
+
+def build_weapon_pages(bw, eg_weapons, notes, exotic_ratings):
+    by_key = {}
+    for w in bw["weapons"]:
+        by_key.setdefault(weapon_key(w["n"]), w)
+    type_counts = {}
+    for row in eg_weapons:
+        type_counts[row["type"]] = type_counts.get(row["type"], 0) + 1
+    picks_for = {}
+    for row in eg_weapons:
+        picks_for.setdefault(weapon_key(row["name"]), []).append(row)
+
+    # perk ratings travel with the perk dictionary so pages can badge every perk in the pool
+    rated = 0
+    for h, perk in bw["perks"].items():
+        r = perk_rating(notes, perk["n"])
+        if r:
+            perk["eg"] = {k: r[k] for k in ("tier", "trigger", "effect", "analysis") if r.get(k)}
+            rated += 1
+
+    used_slugs = set()
+    for w in bw["weapons"]:
+        slug_ = slug(w["n"]) or str(w["h"])
+        while slug_ in used_slugs:
+            slug_ += "-" + str(w["h"])[-4:]
+        used_slugs.add(slug_)
+        w["slug"] = slug_
+        picks = picks_for.get(weapon_key(w["n"]), [])
+        if picks:
+            w["eg"] = [{k: v for k, v in p.items() if k in (
+                "variant", "type", "tab", "tier", "rank", "perk1", "perk2", "origin", "barrel", "mag", "mw", "notes", "season", "source", "enhanceable")} for p in picks]
+            if picks[0].get("notes"):
+                w["blurb"] = picks[0]["notes"]  # Aegis's own note, verbatim
+        if w["tier"] == "Exotic":
+            ex = exotic_ratings.get(norm(w["n"]))
+            if ex:
+                w["egExotic"] = ex
+        # strongest alternatives per trait column, by the perk's own Endgame rating
+        rec = {norm(n) for p in picks for col in ("perk1", "perk2", "origin") for n in p.get(col, [])}
+        alts = {}
+        for col in w["cols"]:
+            if not col["label"].startswith("Trait") or not col.get("random"):
+                continue
+            seen, ranked = set(), []
+            for h in col["perks"]:
+                perk = bw["perks"].get(str(h)) or {}
+                key = norm(perk.get("n", ""))
+                if not key or key in seen or key in rec or perk.get("e"):
+                    continue
+                seen.add(key)
+                t = (perk.get("eg") or {}).get("tier")
+                if t and t in TIER_ORDER[:3]:
+                    ranked.append((TIER_ORDER.index(t), perk["n"], h))
+            ranked.sort()
+            if ranked:
+                alts[col["label"]] = [h for _, _, h in ranked[:4]]
+        if alts:
+            w["alts"] = alts
+    matched = sum(1 for w in bw["weapons"] if w.get("eg"))
+    print(f"bungie weapons: {len(bw['weapons'])}, with Endgame picks: {matched}, perks rated: {rated}")
+    return bw
+
+
+def build_archetypes(eg):
+    """Endgame Analysis 'Archetypes' tab: one row per weapon type + frame with tested values."""
+    sh = next((x for x in eg["sheets"] if x["name"] == "Archetypes"), None)
+    if not sh:
+        return None
+    grid = sh["grid"]
+    groups, current = [], ""
+    for c in range(len(grid[1])):
+        if cell(grid, 0, c).strip():
+            current = cell(grid, 0, c).strip().title()
+        groups.append(current)
+    cols = []
+    for c, name in enumerate(grid[1]):
+        name = name.replace("\n", " ").strip()
+        values = [cell(grid, r, c) for r in range(3, len(grid))]
+        if name in ("Icon",) or (not name and not any(v.strip() for v in values)):
+            continue
+        cols.append((c, name or f"{cols[-1][1]} (cont.)", groups[c] if c < len(groups) else ""))
+    rows = []
+    for r in range(3, len(grid)):
+        vals = [cell(grid, r, c).replace("\n", " ").strip() for c, _, _ in cols]
+        if vals[0]:
+            rows.append(vals)
+    # the Stun column is icons in the sheet, so fill it from tools/archetype-stuns.json
+    names = [n for _, n, _ in cols]
+    stun_file = ROOT / "tools" / "archetype-stuns.json"
+    stun_data = json.loads(stun_file.read_text()) if stun_file.exists() else {"stuns": {}, "breakers": {}}
+    if "Stun" in names:
+        si = names.index("Stun")
+        for row in rows:
+            row[si] = stun_data["stuns"].get(f"{row[0]}|{row[1]}") or frame_stun(row[1])
+    return {"columns": names, "groups": [g for _, _, g in cols], "rows": rows, "tab": "Archetypes",
+            "breakers": stun_data.get("breakers", {})}
+
+
+def frame_stun(frame):
+    """Fallback for archetypes the stun file doesn't list yet: the frame families share stuns."""
+    f = frame.lower()
+    if re.match(r"(adaptive|precision|pinpoint|disruption|caster)", f):
+        return "Shield Piercing"
+    if re.match(r"(aggressive|high-impact|heavy burst|micro-missile|wave|double fire|compressed)", f):
+        return "Stagger"
+    if re.match(r"(rapid-fire|lightweight|balanced|dynamic|support|area denial|vortex|spread)", f):
+        return "Disruption"
+    return ""
+
+
+# ---------------------------------------------------------------- buff stacking (Court's guide)
+STACK_COLS = {"found": 4, "name": 5, "trigger": 7, "pve": 9, "pveDur": 10, "pvp": 11, "pvpDur": 12,
+              "notes": 13, "misc": 16, "other": 19, "intro": 21}
+
+
+def tiers_from(value):
+    """'10% / 17% / 22% / 25%' -> [10, 17, 22, 25]; '35% at 6x' -> [35]; per-stack or ranges -> []"""
+    v = (value or "").replace("\n", " ")
+    if not v or "per" in v.lower() or "->" in v or "~" == v.strip():
+        return []
+    nums = [float(x) for x in re.findall(r"(\d+(?:\.\d+)?)\s*%", v)]
+    return nums
+
+
+def build_stacking(court):
+    grid = court["grid"]
+    g = lambda r, c: cell(grid, r, c).strip()
+    out = {"intro": [], "categories": [], "example": None}
+    # overview rows: category | description | sources | stacking rule
+    for r in range(len(grid)):
+        if g(r, 1) == "Modifier Category":
+            rr = r + 1
+            while rr < len(grid) and not g(rr, 2).startswith("Category:"):
+                name = g(rr, 1)
+                if name:
+                    rule = g(rr, 18)
+                    out["categories"].append({
+                        "name": " ".join(name.split()).title().replace("/ ", "").replace(" /", ""),
+                        "key": slug(name.split("\n")[0]),
+                        "desc": clean(g(rr, 5)), "sources": clean(g(rr, 12)), "rule": clean(rule),
+                        "exclusive": "cannot stack" in rule.lower(),
+                        "notes": [], "groups": [], "lists": [],
+                    })
+                rr += 1
+            break
+    for c in (1, 12):
+        if g(16, c):
+            out["intro"].append(clean(g(16, c)))
+
+    sections = [r for r in range(len(grid)) if g(r, 2).startswith("Category:")]
+    sections.append(len(grid))
+    by_key = {}
+    for cat in out["categories"]:
+        by_key[slug(cat["name"].replace("Global ", "Global Debuffs ").split()[0])] = cat
+    order = ["global", "empowering", "weapon", "amplification", "exotics", "weapon-perks", "world"]
+
+    def cat_for(title):
+        t = title.lower()
+        for cat in out["categories"]:
+            k = cat["name"].lower()
+            if ("debuff" in t and "debuff" in k) or ("empowering" in t and "empowering" in k) or \
+               ("surge" in t and "surge" in k) or ("amplification" in t and "amplification" in k) or \
+               ("exotic" in t and "exotic" in k) or ("weapon perks" in t and "perks" in k) or ("world" in t and "world" in k):
+                return cat
+        return None
+
+    for i in range(len(sections) - 1):
+        start, end = sections[i], sections[i + 1]
+        title = first_line(g(start, 2)).replace("Category:", "").strip()
+        cat = cat_for(title)
+        if cat is None:
+            continue
+        cat["title"] = title
+        cat["blurb"] = clean("\n".join(g(start, 2).split("\n")[1:]))
+        mode, group, entry = None, None, None
+        label_cols, name_cols = {}, set()
+        list_items = []
+        for r in range(start + 1, end):
+            row = grid[r] if r < len(grid) else []
+            if not any(x.strip() for x in row):
+                continue
+            if "Examples & Scenarios" in g(r, 2):
+                break
+            if g(r, 2) == "ICON" and g(r, 7) == "TRIGGER":
+                mode = "table"
+                continue
+            is_label = lambda x: bool(re.fullmatch(r"[A-Z][A-Z :&()]{2,28}", x.replace("\n", " "))) and x not in ("ICON", "NAME")
+            filled = [(c, x.strip()) for c, x in enumerate(row) if x.strip()]
+            if "NAME" in [x for _, x in filled] and "TRIGGER" not in [x for _, x in filled]:
+                pure = all(x in ("ICON", "NAME") or is_label(x) for _, x in filled)
+                if mode != "list" or pure:
+                    name_cols = set()
+                mode = "list"
+                name_cols |= {c for c, x in filled if x == "NAME"}
+            # a row of only labels (HUNTER / TITAN / WARLOCK, KINETIC SLOT ...) starts a new labelling
+            labels_here = {c: (" ".join(x.split()).title(), r) for c, x in filled if is_label(x)}
+            if labels_here and all(is_label(x) or x in ("ICON", "NAME") for _, x in filled):
+                label_cols = labels_here
+            if mode == "table":
+                if g(r, 0):
+                    label = g(r, 0).split("\n\n")[0]  # "EXOTICS:\nSPECIFIC\nELEMENT(S)" (drops "Scroll down..." hints)
+                    group = {"name": " ".join(label.split()).title().replace(": ", ": "), "entries": []}
+                    cat["groups"].append(group)
+                if group is None:
+                    group = {"name": "", "entries": []}
+                    cat["groups"].append(group)
+                vals = {k: clean(g(r, c)) for k, c in STACK_COLS.items()}
+                if vals["name"]:
+                    name_lines = [x.strip() for x in vals["name"].split("\n") if x.strip()]
+                    entry = {"name": name_lines[0], "source": " ".join(name_lines[1:]), "variants": []}
+                    for k in ("found", "notes", "misc", "other", "intro"):
+                        if vals[k] and vals[k] != "-":
+                            entry[k] = vals[k]
+                    group["entries"].append(entry)
+                if entry is not None and (vals["trigger"] or vals["pve"] or vals["name"]):
+                    variant = {k: vals[k] for k in ("trigger", "pve", "pveDur", "pvp", "pvpDur") if vals[k]}
+                    if not variant.get("pve") and entry["variants"]:
+                        # merged cells in the sheet: same values as the row above (e.g. each surge mod)
+                        variant = {**entry["variants"][-1], **variant}
+                    elif not variant.get("pve"):
+                        prev = [e for e in group["entries"] if e is not entry and e["variants"]]
+                        if prev and not vals["trigger"]:
+                            variant = {**prev[-1]["variants"][0]}
+                    if variant:
+                        variant["tiers"] = tiers_from(variant.get("pve"))
+                        entry["variants"].append(variant)
+                    if not vals["name"] and vals["notes"] and vals["notes"] != "-":
+                        variant["notes"] = vals["notes"]
+                continue
+            # list mode: names sit under NAME headers; uppercase cells are group labels;
+            # anything else near a name is a note on the closest name; long text is a section note
+            for c, v in enumerate(row):
+                v = v.strip()
+                if not v or v in ("ICON", "NAME"):
+                    continue
+                lines_ = [x.strip() for x in v.split("\n") if x.strip()]
+                v = re.sub(r"\s*Graphic by @CourtProjects\s*", "", v).strip()
+                if not v:
+                    continue
+                if mode == "list" and c in name_cols and is_label(v):
+                    label_cols[c - 1] = (" ".join(v.split()).title(), r)
+                elif mode == "list" and c in name_cols and len(v) <= 70:
+                    # newest label to the left wins; same row -> the nearest one
+                    cands = sorted(((lr, lc, lab) for lc, (lab, lr) in label_cols.items() if lc <= c), reverse=True)
+                    item = {"name": lines_[0], "source": " ".join(lines_[1:]), "col": c, "row": r,
+                            "group": cands[0][2] if cands else ""}
+                    list_items.append(item)
+                    cat["lists"].append(item)
+                elif is_label(v):
+                    label_cols[c] = (" ".join(v.split()).title(), r)
+                elif mode == "list" and list_items and len(v) <= 200 and c > 2 and not ("for example" in v.lower() and len(v) > 70):
+                    near = sorted(list_items, key=lambda it: (abs(it["col"] - c), -it["row"]))[0]
+                    near.setdefault("notes", []).append(clean(v))
+                elif len(v) > 25 and not v.startswith(("See data", "Data sourced", "All data")) and clean(v) not in cat["notes"]:
+                    cat["notes"].append(clean(v))
+        seen_items = set()
+        deduped = []
+        for it in cat["lists"]:
+            it.pop("col", None)
+            it.pop("row", None)
+            key = (it["group"], it["name"])
+            if key not in seen_items:
+                seen_items.add(key)
+                deduped.append(it)
+        cat["lists"] = deduped
+    # the worked example at the bottom of the sheet
+    for r in range(len(grid)):
+        if g(r, 1) == "EXAMPLE 1":
+            items = [clean(x) for x in grid[r + 3] if x.strip()]
+            vals = [clean(x) for x in grid[r + 5] if x.strip()]
+            out["example"] = {"weapon": items[0], "modifiers": items[1:-1], "verdict": items[-1],
+                              "values": vals[1:-1], "total": vals[-1]}
+            break
+    for cat in out["categories"]:
+        cat["groups"] = [gr for gr in cat["groups"] if gr["entries"]]
+    return out
+
+
 def main():
     raw_all = json.loads((DATA / "raw.json").read_text())
     raw = raw_all["sources"]
@@ -790,11 +1117,35 @@ def main():
         e["kw"] = {k: sorted(v) for k, v in roles.items()}
 
     tabs = {key: [{"name": s["name"], "gid": s["gid"]} for s in src["sheets"]] for key, src in raw.items()}
-    (DATA / "weapons.json").write_text(json.dumps(
-        {"weapons": weapons, "exotics": list(exotic_ratings.values())}, ensure_ascii=False, separators=(",", ":")))
-    print(f"{len(weapons)} legendary weapons, {len(exotic_ratings)} exotic ratings")
+    bungie_file = DATA / "bungie-weapons.json"
+    if bungie_file.exists():
+        bw = build_weapon_pages(json.loads(bungie_file.read_text()), weapons, notes, exotic_ratings)
+        weapon_payload = {"version": bw.get("version"), "statNames": bw["statNames"], "perks": bw["perks"],
+                          "weapons": bw["weapons"], "exotics": list(exotic_ratings.values())}
+        # the sheet's own per-type ranking lists, in sheet order, with a link to our weapon page
+        slug_by_key = {weapon_key(w["n"]): w["slug"] for w in bw["weapons"]}
+        rankings = {}
+        for row in weapons:
+            r = {k: v for k, v in row.items() if k not in ("id", "type")}
+            r["slug"] = slug_by_key.get(weapon_key(row["name"]))
+            rankings.setdefault(row["tab"], {"type": row["type"], "rows": []})["rows"].append(r)
+        weapon_payload["rankings"] = rankings
+    else:  # no Bungie data yet: fall back to the Endgame list alone
+        weapon_payload = {"weapons": [], "endgameOnly": weapons, "exotics": list(exotic_ratings.values())}
+    (DATA / "weapons.json").write_text(json.dumps(weapon_payload, ensure_ascii=False, separators=(",", ":")))
+    print(f"{len(weapons)} Endgame rankings, {len(exotic_ratings)} exotic ratings")
+
+    court_file = DATA / "raw-court.json"
+    if "court" not in raw and court_file.exists():
+        raw["court"] = json.loads(court_file.read_text())["sources"]["court"]
+    if "court" in raw:
+        stacking = build_stacking(next(s for s in raw["court"]["sheets"] if s["name"] == "STACKING GUIDE"))
+        (DATA / "stacking.json").write_text(json.dumps(stacking, ensure_ascii=False, separators=(",", ":")))
+        print("stacking:", [(c["name"], sum(len(g["entries"]) for g in c["groups"]), len(c["lists"])) for c in stacking["categories"]])
 
     tables = build_tables(raw)
+    if "endgame" in raw:
+        tables["archetypes"] = build_archetypes(raw["endgame"])
     (DATA / "tables.json").write_text(json.dumps(tables, ensure_ascii=False, separators=(",", ":")))
 
     keyword_meta = [{"name": n, "group": g, "rx": rx} for n, g, rx in KEYWORDS]
@@ -802,9 +1153,14 @@ def main():
         {"entries": out.entries, "keywords": keyword_meta, "prismaticShared": shared_by_class},
         ensure_ascii=False, separators=(",", ":")))
 
-    meta = {"fetched": raw_all.get("fetched"), "counts": {"weapons": len(weapons)}, "sources": {}}
+    meta = {"fetched": raw_all.get("fetched"), "counts": {
+                "weapons": len(weapon_payload["weapons"]) or len(weapons),
+                "legendaries": sum(1 for w in weapon_payload["weapons"] if w.get("tier") == "Legendary") or len(weapons),
+                "exotics": sum(1 for w in weapon_payload["weapons"] if w.get("tier") == "Exotic") or len(exotic_ratings)},
+            "bungieVersion": weapon_payload.get("version"), "sources": {}}
     for key, src in raw.items():
-        meta["sources"][key] = {**SOURCES[key], "id": src["id"], "title": src["title"], "tabs": tabs[key]}
+        meta["sources"][key] = {**SOURCES[key], "id": src["id"], "title": src["title"],
+                                "tabs": [{"name": s["name"], "gid": s["gid"]} for s in src["sheets"]]}
     (DATA / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1))
 
     counts = {}

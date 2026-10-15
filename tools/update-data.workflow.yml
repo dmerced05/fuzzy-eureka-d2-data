@@ -18,6 +18,11 @@ jobs:
           python-version: "3.12"
       - name: Fetch sheets
         run: python tools/fetch_sheets.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Fetch Bungie weapon data
+        run: node tools/bungie-weapons.mjs && node tools/bungie-icons.mjs
       - name: Build site data
         run: python tools/build_data.py
       - name: Commit if anything changed

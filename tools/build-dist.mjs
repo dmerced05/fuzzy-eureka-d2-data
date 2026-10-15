@@ -12,7 +12,7 @@ mkdirSync(dist, { recursive: true });
 for (const item of ["index.html", "assets", "data"]) {
   cpSync(join(root, item), join(dist, item), {
     recursive: true,
-    filter: (src) => !/raw(-[a-z]+)?\.json$/.test(src),
+    filter: (src) => !/(raw(-[a-z]+)?|bungie-weapons)\.json$/.test(src),
   });
 }
 writeFileSync(join(dist, ".nojekyll"), "");
