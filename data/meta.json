@@ -1,5 +1,5 @@
 {
- "fetched": "2026-10-15T10:11:05.674Z",
+ "fetched": "2026-10-15T12:19:49.516548+00:00",
  "counts": {
   "weapons": 1104,
   "legendaries": 963,
@@ -709,11 +709,39 @@
    "blurb": "How every damage buff and debuff in the game stacks, sorted into categories, with PvE and PvP values for each source.",
    "tabs": [
     {
+     "name": "LANDING",
+     "gid": "242217075"
+    },
+    {
      "name": "STACKING GUIDE",
      "gid": "2073397587"
+    },
+    {
+     "name": "CHAMP COUNTERS LIST",
+     "gid": "1367323152"
+    },
+    {
+     "name": "CATALYSTS",
+     "gid": "1305623430"
+    },
+    {
+     "name": "BANES",
+     "gid": "1888181920"
+    },
+    {
+     "name": "MICRO-MISSILES",
+     "gid": "640460340"
+    },
+    {
+     "name": "COMBATANTS GUIDE (NOT UPDATED)",
+     "gid": "1541186536"
+    },
+    {
+     "name": "MARATHON (NOT UPDATED)",
+     "gid": "1034561092"
     }
    ],
-   "title": "Destiny 2 Damage Buffs/Debuffs"
+   "title": "Destiny 2 Damage Buffs/Debuffs - JUNE UPDATE"
   }
  }
 }

@@ -43,12 +43,24 @@ if (isMain) {
   const { join, dirname } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
   const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-  const headers = process.env.BUNGIE_API_KEY ? { "X-API-Key": process.env.BUNGIE_API_KEY } : {};
-  const manifest = await (await fetch("https://www.bungie.net/Platform/Destiny2/Manifest/", { headers })).json();
-  const paths = manifest.Response.jsonWorldComponentContentPaths.en;
-  const m = {};
-  for (const k of ICON_COMPONENTS) m[k] = await (await fetch(`https://www.bungie.net${paths[k]}`)).json();
-  const out = extractIcons(m, manifest.Response.version);
-  writeFileSync(join(root, "data", "icons.json"), JSON.stringify(out));
-  console.log(`${Object.keys(out.abilities).length} abilities, ${Object.keys(out.armor).length} armor, ${Object.keys(out.activities).length} activities`);
+  // pictures are nice-to-have: if Bungie says no, I keep the old icons.json and let `npm run data` carry on
+  try {
+    const headers = process.env.BUNGIE_API_KEY ? { "X-API-Key": process.env.BUNGIE_API_KEY } : {};
+    const manifest = await (await fetch("https://www.bungie.net/Platform/Destiny2/Manifest/", { headers })).json();
+    if (!manifest.Response) throw new Error(`manifest: ${manifest.ErrorStatus || "no response"} ${manifest.Message || ""}`);
+    const paths = manifest.Response.jsonWorldComponentContentPaths.en;
+    const m = {};
+    for (const k of ICON_COMPONENTS) {
+      process.stdout.write(`fetching ${k}… `);
+      const r = await fetch(`https://www.bungie.net${paths[k]}`);
+      if (!r.ok) throw new Error(`${k}: HTTP ${r.status}`);
+      m[k] = await r.json();
+      console.log(Object.keys(m[k]).length);
+    }
+    const out = extractIcons(m, manifest.Response.version);
+    writeFileSync(join(root, "data", "icons.json"), JSON.stringify(out));
+    console.log(`${Object.keys(out.abilities).length} abilities, ${Object.keys(out.armor).length} armor, ${Object.keys(out.activities).length} activities`);
+  } catch (err) {
+    console.warn(`bungie-icons: couldn't refresh icons (${err.message}); keeping the existing data/icons.json`);
+  }
 }
