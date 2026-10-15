@@ -1,0 +1,26 @@
+{
+  "compendium": {
+    "id": "1WaxvbLx7UoSZaBqdFr1u32F2uWVLo-CJunJB4nlGUE4",
+    "short": "Data Compendium",
+    "author": "Destiny Data Compendium",
+    "contact": "Discord: destinydatacompendium",
+    "support": "https://www.patreon.com/DataCompendium",
+    "blurb": "Numerical values of exotic perks, mods, abilities, and game mechanics, explained as precisely as possible."
+  },
+  "bossdamage": {
+    "id": "1_5wtBjRYHHxuF4oJKDb_iOGZs-wTkzB6RYbnyNLbuz4",
+    "short": "Boss Damage",
+    "author": "TheAegisRelic",
+    "contact": "Discord: @theaegisrelic",
+    "support": "https://x.com/TheAegisRelic",
+    "blurb": "Boss damage testing: base values for weapons and abilities, sustained and swap DPS, boss considerations."
+  },
+  "bosshealth": {
+    "id": "1bNyhSpJoFOV_yhGL45eFVs9MEzheqJ6Mk0cGyrwPufc",
+    "short": "Boss Health",
+    "author": "TheAegisRelic",
+    "contact": "Discord: @theaegisrelic",
+    "support": "https://x.com/TheAegisRelic",
+    "blurb": "Boss health values (Monument of Triumph) at each power delta, with per-encounter breakdowns."
+  }
+}
