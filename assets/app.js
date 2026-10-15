@@ -38,6 +38,10 @@
     shared: {}, tables: null, sheets: {}, combined: null, glossary: new Map(),
   };
   const app = document.getElementById("app");
+  // the deployed build stamps <html data-build="…"> so every deploy fetches fresh data instead of
+  // GitHub Pages' 10-minute browser cache; in dev there's no stamp and the dev server sends no-store
+  const BUILD = document.documentElement.dataset.build || "";
+  const dataUrl = (file) => `data/${file}${BUILD ? `?v=${BUILD}` : ""}`;
 
   // ------------------------------------------------------------ utils
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -441,7 +445,7 @@
     which = which || "health";
     if (!S.tables) {
       app.innerHTML = `<p class="loading">Loading boss tables…</p>`;
-      S.tables = await (await fetch("data/tables.json")).json();
+      S.tables = await (await fetch(dataUrl("tables.json"))).json();
     }
     await Promise.all([ensureWeapons(), ensureIcons()]);
     const tabs = BOSS_TABS.map(([k, label]) => `<a href="#/boss/${k}" ${k === which ? 'aria-current="page"' : ""}>${label}</a>`).join("");
@@ -574,7 +578,7 @@
   };
 
   async function ensureWeapons() {
-    if (!S.weapons) S.weapons = await (await fetch("data/weapons.json")).json();
+    if (!S.weapons) S.weapons = await (await fetch(dataUrl("weapons.json"))).json();
     if (!S.weaponByKey) {
       S.weaponByKey = new Map();
       S.weaponBySlug = new Map();
@@ -925,7 +929,9 @@
 
     let t;
     const upd = (patch) => go(weaponHash({ ...readWeaponParams(), ...patch }), true);
-    app.querySelector("[data-wq]").oninput = (ev) => { clearTimeout(t); t = setTimeout(() => { upd({ q: ev.target.value }); focusEnd("[data-wq]"); }, 220); };
+    // the page re-renders after an await, so keep typing focus by restoring it once the new search box exists
+    app.querySelector("[data-wq]").oninput = (ev) => { clearTimeout(t); t = setTimeout(() => { S.refocus = "[data-wq]"; upd({ q: ev.target.value }); }, 220); };
+    if (S.refocus) { focusEnd(S.refocus); S.refocus = null; }
     app.querySelector("[data-wperk]").onchange = (ev) => upd({ perk: ev.target.value.trim() });
     app.querySelectorAll("[data-wsel]").forEach((s) => { s.onchange = () => upd({ [s.dataset.wsel]: s.value }); });
     app.onclick = (ev) => {
@@ -1267,7 +1273,7 @@
   // ------------------------------------------------------------ archetypes (Endgame Analysis)
   const typeKey = (t) => normName(t).replace(/s$/, "").replace("submachinegun", "smg").replace("combatbow", "bow");
   async function ensureTables() {
-    if (!S.tables) S.tables = await (await fetch("data/tables.json")).json();
+    if (!S.tables) S.tables = await (await fetch(dataUrl("tables.json"))).json();
     return S.tables;
   }
   function archetypeRowsFor(type, ammo) {
@@ -1497,7 +1503,7 @@
   async function ensureIcons() {
     if (S.icons) return S.icons;
     let raw = { abilities: {}, armor: {}, activities: {} };
-    try { raw = await (await fetch("data/icons.json")).json(); } catch { /* pictures are optional */ }
+    try { raw = await (await fetch(dataUrl("icons.json"))).json(); } catch { /* pictures are optional */ }
     const abil = new Map(), act = new Map();
     Object.entries(raw.abilities || {}).forEach(([n, x]) => {
       [n, n.replace(/ Grenade$/, ""), n.split(":")[0]].forEach((k) => { if (!abil.has(normName(k))) abil.set(normName(k), x.i); });
@@ -1696,7 +1702,7 @@
   async function renderStacking() {
     if (!S.stacking) {
       app.innerHTML = `<p class="loading">Loading the stacking guide…</p>`;
-      S.stacking = await (await fetch("data/stacking.json")).json();
+      S.stacking = await (await fetch(dataUrl("stacking.json"))).json();
     }
     const d = S.stacking;
     const st = loadStackState();
@@ -1898,11 +1904,26 @@
       `Data from the <a href="https://docs.google.com/spreadsheets/d/${s.compendium.id}/edit" target="_blank" rel="noopener">Destiny Data Compendium</a> and ${esc(s.bossdamage.author)}'s <a href="https://docs.google.com/spreadsheets/d/${s.endgame?.id}/edit" target="_blank" rel="noopener">Endgame Analysis</a>, <a href="https://docs.google.com/spreadsheets/d/${s.bossdamage.id}/edit" target="_blank" rel="noopener">Boss Damage</a> and <a href="https://docs.google.com/spreadsheets/d/${s.bosshealth.id}/edit" target="_blank" rel="noopener">Boss Health</a> sheets. <a href="#/about">Full credits</a>. Unofficial; not affiliated with Bungie.`;
   }
 
+  // GitHub Pages also caches index.html for 10 minutes; if a newer build is live, reload once to pick it up
+  async function checkForNewBuild() {
+    if (!BUILD) return;
+    try {
+      const html = await (await fetch(`./?_=${Date.now()}`, { cache: "no-store" })).text();
+      const live = (html.match(/data-build="([^"]+)"/) || [])[1];
+      const key = "d2ce.reloadedFor";
+      if (live && live !== BUILD && sessionStorage.getItem(key) !== live) {
+        sessionStorage.setItem(key, live);
+        location.reload();
+      }
+    } catch { /* offline or blocked: keep the cached build */ }
+  }
+
   async function init() {
+    checkForNewBuild();
     try {
       const [ent, meta] = await Promise.all([
-        fetch("data/entries.json").then((r) => r.json()),
-        fetch("data/meta.json").then((r) => r.json()),
+        fetch(dataUrl("entries.json")).then((r) => r.json()),
+        fetch(dataUrl("meta.json")).then((r) => r.json()),
       ]);
       S.entries = ent.entries;
       S.keywords = ent.keywords;
