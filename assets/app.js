@@ -624,8 +624,8 @@
     ] },
     { title: "Weapons and armor", items: [
       { label: "Legendary weapons", href: "#/weapons?rarity=Legendary", count: () => S.meta.counts?.legendaries, blurb: "Every perk they can roll, plus the best picks" },
-      { label: "Weapon traits", cat: "weapon-trait" },
-      { label: "Origin traits", cat: "origin-trait" },
+      { label: "Weapon perks", href: "#/perks", blurb: "Every trait, barrel and mag, with Endgame tiers" },
+      { label: "Origin traits", href: "#/perks/origins", blurb: "Every origin trait, with Endgame tiers" },
       { label: "Weapon frames", cat: "intrinsic" },
       { label: "Armor set bonuses", href: "#/armor", count: () => S.entries.filter((e) => e.cat === "armor-set").length, blurb: "2- and 4-piece bonuses with Endgame notes" },
       { label: "Armor mods & stats", href: "#/armor/mods", count: () => S.entries.filter((e) => e.cat === "armor-mod").length, blurb: "Every mod, plus what each armor stat does" },
@@ -1312,6 +1312,150 @@
     return `<a class="thumb" href="#/weapon/${w.slug}" title="${esc(w.n)}" aria-label="${esc(w.n)}"><img src="${BNET}${esc(w.icon)}" alt="" width="${size}" height="${size}" loading="lazy"></a>`;
   }
 
+  // ------------------------------------------------------------ perks: every weapon perk, grouped by column
+  // Built from the weapon pages' perk pools so it only lists perks that roll on a current copy of some weapon.
+  function weaponPerkIndex() {
+    if (S.perkIdx) return S.perkIdx;
+    const P = S.weapons.perks;
+    const map = new Map(); // kind|name -> record
+    const rec = (kind, h, w, label) => {
+      const p = P[h];
+      if (!p?.n) return;
+      const key = `${kind}|${normName(p.n)}`;
+      const r = map.get(key) || map.set(key, { kind, key, base: null, enh: null, label, weapons: new Set(), legendary: false, exotic: false }).get(key);
+      if (p.e) r.enh ||= h; else r.base ||= h;
+      r.weapons.add(w);
+      if (w.tier === "Exotic") r.exotic = true; else r.legendary = true;
+    };
+    for (const w of S.weapons.weapons) {
+      for (const c of w.cols) {
+        // classify by what the perk is (a few origin traits and traits sit in odd sockets), falling back to the column
+        c.perks.forEach((h) => {
+          const t = (P[h]?.t || "").replace(/^Enhanced /, "");
+          const kind = /Origin Trait/.test(t) || c.cat === "origins" ? "origin" : t === "Trait" || c.cat === "frames" ? "trait" : "stat";
+          rec(kind, h, w, t || c.label);
+        });
+      }
+      if (w.tier === "Exotic" && w.frameHash) rec("intrinsic", w.frameHash, w, "Exotic perk");
+    }
+    const all = [...map.values()].map((r) => {
+      const h = r.base || r.enh;
+      const p = P[h];
+      return { ...r, h, p, eg: p.eg || P[r.enh]?.eg || null, hasEnh: !!(r.base && r.enh), weapons: [...r.weapons] };
+    });
+    // anything that only ever shows up on exotics is an exotic-specific perk, whatever column it sits in
+    const exoticOnly = (r) => r.kind === "intrinsic" || (r.kind !== "origin" && r.exotic && !r.legendary);
+    S.perkIdx = {
+      stat: all.filter((r) => r.kind === "stat" && !exoticOnly(r)),
+      trait: all.filter((r) => r.kind === "trait" && !exoticOnly(r)),
+      exotic: all.filter(exoticOnly),
+      origin: all.filter((r) => r.kind === "origin"),
+    };
+    return S.perkIdx;
+  }
+
+  async function renderPerks(which) {
+    which = which === "origins" ? "origins" : "weapon";
+    if (!S.weapons) app.innerHTML = `<p class="loading">Loading perks…</p>`;
+    await Promise.all([ensureWeapons(), ensureTables()]);
+    const idx = weaponPerkIndex();
+    const { q } = parseHash();
+    const tabs = [["weapon", "Weapon perks", "#/perks"], ["origins", "Origin traits", "#/perks/origins"]]
+      .map(([k, label, href]) => `<a href="${href}" ${k === which ? 'aria-current="page"' : ""}>${label}</a>`).join("");
+    const sections = which === "origins"
+      ? [["origin", "Origin traits", "Tied to where a weapon comes from rather than rolled, so every copy from that source gets one."]]
+      : [["trait", "Traits (columns 3 and 4)", "The perks that define a roll."],
+         ["stat", "Barrels, magazines and other stat perks (columns 1 and 2)", "Quality-of-life picks that mostly move stats."],
+         ["exotic", "Exotic-specific perks", "Intrinsic exotic perks and anything that only rolls on exotics."]];
+    const state = { q: q.get("q") || "", tier: q.get("tier") || "", sort: q.get("sort") || "tier" };
+    app.innerHTML = `
+      ${crumbs([["Home", "#/"], ["Perks"]])}
+      <h1>Perks</h1>
+      <p class="intro">Every perk that rolls on a current weapon, from Bungie's item data, with ${esc(S.meta.sources.endgame?.author || "TheAegisRelic")}'s Endgame Analysis tier and notes and the Destiny Data Compendium's exact values where they cover it.</p>
+      <nav class="tabbar" aria-label="Perk sections">${tabs}</nav>
+      <div class="table-tools">
+        <input class="input" type="search" placeholder="Search perks or what they do…" value="${esc(state.q)}" data-pq aria-label="Search perks">
+        <select class="input" data-psort aria-label="Sort" style="max-width:220px">
+          <option value="tier" ${state.sort === "tier" ? "selected" : ""}>Sort: Endgame tier</option>
+          <option value="name" ${state.sort === "name" ? "selected" : ""}>Sort: name</option>
+          <option value="count" ${state.sort === "count" ? "selected" : ""}>Sort: most weapons</option>
+        </select>
+        <div class="chips">${TIER_ORDER.slice(0, 6).map((t) => `<button type="button" class="chip chip-sm" data-ptier="${t}" aria-pressed="${state.tier === t}">Tier ${t}</button>`).join("")}</div>
+        <span class="muted" data-pcount></span>
+      </div>
+      ${which === "weapon" ? `<nav class="perk-jump" aria-label="Jump to">${sections.map(([k, title]) => `<a href="#perks-${k}" data-pjump="${k}">${esc(title.replace(/ \(.*\)$/, ""))}</a>`).join("")}</nav>` : ""}
+      <div data-plist></div>
+      <p class="source-note">Perk pools and descriptions from Bungie's item manifest. Tiers and notes from <a href="${esc(sheetUrl("endgame", "Weapon Perks") || sheetUrl("endgame", "Autos") || "#")}" target="_blank" rel="noopener">Endgame Analysis</a>; exact values from the <a href="${esc(sheetUrl("compendium", "Weapon Perks") || "#")}" target="_blank" rel="noopener">Destiny Data Compendium</a>.</p>`;
+
+    const listEl = app.querySelector("[data-plist]"), countEl = app.querySelector("[data-pcount]");
+    const sync = () => {
+      const p = new URLSearchParams(Object.entries(state).filter(([k, v]) => v && !(k === "sort" && v === "tier")));
+      history.replaceState(null, "", `#/perks${which === "origins" ? "/origins" : ""}${p.toString() ? "?" + p : ""}`);
+    };
+    const draw = () => {
+      const terms = state.q.toLowerCase().split(/\s+/).filter(Boolean);
+      const sorters = {
+        tier: (a, b) => tierRank(a.eg?.tier) - tierRank(b.eg?.tier) || a.p.n.localeCompare(b.p.n),
+        name: (a, b) => a.p.n.localeCompare(b.p.n),
+        count: (a, b) => b.weapons.length - a.weapons.length || a.p.n.localeCompare(b.p.n),
+      };
+      let shown = 0, total = 0;
+      listEl.innerHTML = sections.map(([k, title, blurb]) => {
+        const pool = idx[k];
+        total += pool.length;
+        const rows = pool.filter((r) => (!state.tier || r.eg?.tier === state.tier) &&
+          (!terms.length || terms.every((t) => (r._hay ||= [r.p.n, r.p.d, r.label, r.eg?.effect, r.eg?.trigger, r.eg?.analysis, ...(r.kind === "intrinsic" || k === "exotic" ? r.weapons.map((w) => w.n) : [])].join(" ").toLowerCase()).includes(t))))
+          .sort(sorters[state.sort] || sorters.tier);
+        shown += rows.length;
+        if (!rows.length) return "";
+        // stat perks read better grouped by what they are (Barrel, Magazine, Scope…)
+        const body = k === "stat"
+          ? [...new Set(rows.map((r) => r.label))].sort().map((lab) => `<h3 class="perk-sub">${esc(lab)}</h3><div class="perk-grid">${rows.filter((r) => r.label === lab).map(perkCard).join("")}</div>`).join("")
+          : `<div class="perk-grid">${rows.map(perkCard).join("")}</div>`;
+        return `<section class="perk-sec" id="perks-${k}"><h2>${esc(title)} <span class="muted">${rows.length}</span></h2><p class="muted">${esc(blurb)}</p>${body}</section>`;
+      }).join("") || `<p>No perks match. Clear the search or tier filter.</p>`;
+      countEl.textContent = `${shown} of ${total}`;
+    };
+    app.querySelector("[data-pq]").oninput = (ev) => { state.q = ev.target.value; sync(); draw(); };
+    app.querySelector("[data-psort]").onchange = (ev) => { state.sort = ev.target.value; sync(); draw(); };
+    app.onclick = (ev) => {
+      const t = ev.target.closest("[data-ptier]");
+      if (t) {
+        state.tier = state.tier === t.dataset.ptier ? "" : t.dataset.ptier;
+        app.querySelectorAll("[data-ptier]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.ptier === state.tier)));
+        sync(); draw(); return;
+      }
+      const j = ev.target.closest("[data-pjump]");
+      if (j) { ev.preventDefault(); document.getElementById(`perks-${j.dataset.pjump}`)?.scrollIntoView({ behavior: "smooth", block: "start" }); }
+    };
+    draw();
+  }
+
+  function perkCard(r) {
+    const p = r.p;
+    const ce = compendiumPerk(p.n);
+    const eg = r.eg;
+    const statLine = (p.s || []).map(([sh, v]) => `${v > 0 ? "+" : ""}${v} ${S.weapons.statNames[sh] || ""}`).join(" · ");
+    const onWeapons = r.kind === "intrinsic" || !r.legendary
+      ? `<p class="perk-on"><span class="muted">On</span> ${r.weapons.slice(0, 6).map((w) => `<a href="#/weapon/${w.slug}">${esc(w.n)}</a>`).join(", ")}${r.weapons.length > 6 ? ` and ${r.weapons.length - 6} more` : ""}</p>`
+      : `<p class="perk-on"><a href="#/weapons?perk=${encodeURIComponent(p.n)}">Rolls on ${r.weapons.length} weapon${r.weapons.length === 1 ? "" : "s"}</a></p>`;
+    return `<article class="perk-card ${isDeprecated(p) ? "deprecated" : ""}">
+      <header>${p.i ? `<img src="${BNET}${esc(p.i)}" alt="" width="40" height="40" loading="lazy">` : `<span class="pk-noimg"></span>`}
+        <div class="perk-title"><h3>${esc(p.n)}${r.hasEnh ? ` <span class="pk-enh" title="Enhanced version available">↑</span>` : ""}</h3>
+          <span class="muted">${esc(r.label)}${isDeprecated(p) ? " · deprecated" : ""}</span></div>
+        ${eg?.tier ? tierBadge(eg.tier, "Endgame Analysis tier") : ""}</header>
+      ${p.d ? `<p class="perk-desc">${esc(p.d)}</p>` : ""}
+      ${statLine ? `<p class="perk-stats">${esc(statLine)}</p>` : ""}
+      ${eg && (eg.trigger || eg.effect || eg.analysis) ? `<dl class="kv interactions">
+        ${eg.trigger ? `<dt>Trigger</dt><dd>${esc(eg.trigger)}</dd>` : ""}
+        ${eg.effect ? `<dt>Effect</dt><dd>${esc(eg.effect)}</dd>` : ""}
+        ${eg.analysis ? `<dt>Endgame notes</dt><dd>${esc(eg.analysis)}</dd>` : ""}</dl>` : ""}
+      ${ce ? `<details class="kwd perk-exact"><summary>Exact values (Compendium)</summary><div class="desc">${fmt(ce.desc)}</div><p class="kwd-link"><a href="${itemHref(ce)}">Open ${esc(ce.name)}</a></p></details>` : ""}
+      ${kwDropsHTML([p.d, ce?.desc].filter(Boolean).join("\n"))}
+      ${onWeapons}
+    </article>`;
+  }
+
   // ------------------------------------------------------------ armor: set bonuses | mods & stats
   // keyword dropdowns: one <details> per glossary keyword the text mentions, plus Armor Charge from the Game Mechanics tab
   function kwDropsHTML(text, label = "Keywords") {
@@ -1893,6 +2037,7 @@
     else if (page === "archetypes") renderArchetypes(parts[1]);
     else if (page === "stacking") renderStacking();
     else if (page === "armor") renderArmor(parts[1]);
+    else if (page === "perks") renderPerks(parts[1]);
     else if (page === "boss") renderBoss(parts[1]);
     else if (page === "about") renderAbout();
     else renderHome();
