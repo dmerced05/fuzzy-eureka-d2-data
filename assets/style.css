@@ -320,6 +320,7 @@ table.data td.wrap { min-width: 220px; max-width: 420px; white-space: pre-wrap; 
 .home-hero { padding: 28px 0 8px; max-width: 760px; }
 .home-hero h1 { font-size: clamp(2rem, 5vw, 3rem); letter-spacing: -.01em; }
 .home-hero p { color: var(--muted); font-size: 1.1rem; margin: 8px 0 18px; max-width: 60ch; }
+.home-hero p.home-credit { font-size: .95rem; margin-top: -8px; }
 .home-search { display: flex; gap: 8px; }
 .home-search .input { font-size: 1.05rem; padding: 12px 14px; }
 .home-group { margin-top: 30px; }
