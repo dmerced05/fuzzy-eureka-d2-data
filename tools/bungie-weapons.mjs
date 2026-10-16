@@ -186,6 +186,8 @@ export function extractWeapons(m, version) {
       src: (COL[item.collectibleHash]?.sourceString || "").replace(/^Source:\s*/, ""),
       craftable: !!item.inventory?.recipeItemHash,
       adept: !!item.isAdept || /\((Adept|Timelost|Harrowed)\)/.test(item.displayProperties.name),
+      // Edge of Fate-era copies carry the weapon-tier sockets; those are the ones that currently drop
+      tiered: item.sockets.socketEntries.some((e) => /weapon_tiering/.test(I[e.singleInitialItemHash]?.plug?.plugCategoryIdentifier || "")),
       stats,
       inv, sg: item.stats?.statGroupHash,
       ...(mods ? { mods } : {}), ...(mw ? { mw } : {}),
@@ -193,7 +195,9 @@ export function extractWeapons(m, version) {
     });
   }
 
-  // one page per weapon name: prefer the non-adept version with the biggest live perk pool, then the newest
+  // One page per weapon name. Bungie keeps every reissue of a weapon as its own item (Bygones has a copy per
+  // season it came back in), each with its own perk pool, so pick the copy that drops today:
+  // non-adept, then a current tiered copy, then one with random rolls, then one you can still get, then the newest.
   const byName = new Map();
   for (const w of all) {
     const key = w.n.replace(/\s*\((Adept|Timelost|Harrowed|Baroque)\)\s*$/i, "").trim();
@@ -201,8 +205,9 @@ export function extractWeapons(m, version) {
   }
   const weapons = [];
   for (const [name, list] of byName) {
-    const size = (w) => w.cols.reduce((n, c) => n + c.perks.length, 0);
-    list.sort((a, b) => (a.adept - b.adept) || size(b) - size(a) || b.idx - a.idx);
+    const random = (w) => +w.cols.some((c) => c.random);
+    const gettable = (w) => +!/cannot be reacquired/i.test(w.src || "");
+    list.sort((a, b) => (a.adept - b.adept) || (b.tiered - a.tiered) || (random(b) - random(a)) || (gettable(b) - gettable(a)) || b.idx - a.idx);
     const main = { ...list[0], n: name };
     main.versions = list.length;
     if (list.some((w) => w.adept)) main.hasAdept = true;
