@@ -646,8 +646,9 @@
     S.entries.forEach((e) => { counts[e.cat] = (counts[e.cat] || 0) + 1; });
     app.innerHTML = `
       <section class="home-hero">
-        <h1>Destiny 2, by the numbers</h1>
-        <p>Exact values for perks, abilities and exotics, every weapon's perk pool with the community's best picks, and boss data, gathered from the community's testing spreadsheets and Bungie's own item data.</p>
+        <h1>Destiny 2 community data compilation</h1>
+        <p>A searchable compilation of the community's testing spreadsheets: exact values for perks, abilities and exotics, weapon rankings, buff stacking and boss data, all tested and published by the players credited below. Look anything up in seconds instead of digging through tabs, with every weapon's perk pool pulled from Bungie's item data.</p>
+        <p class="home-credit">Data by the Destiny Data Compendium, TheAegisRelic and Court. <a href="#/about">See every source</a>.</p>
         <form class="home-search" role="search">
           <label class="visually-hidden" for="homeq">Search everything</label>
           <input id="homeq" class="input" type="search" placeholder="Search a perk, exotic, aspect, weapon…" autocomplete="off">
